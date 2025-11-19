@@ -1,0 +1,34 @@
+cabal-version: 3.4
+name:          plutus-script-reexecutor 
+version:       0.1.0.0
+license:       MIT
+build-type:    Simple
+
+library
+  hs-source-dirs:  lib
+  exposed-modules: Lib
+  build-depends:
+    , base                         >=4.9   && <5
+
+executable exec
+  main-is:        App.hs
+  hs-source-dirs: app
+  build-depends:
+    , base                     >=4.9   && <5
+    , plutus-script-reexecutor 
+
+benchmark bench
+  type:           exitcode-stdio-1.0
+  main-is:        Bench.hs
+  hs-source-dirs: bench
+  build-depends:
+    , base >=4.9     && <5
+    , plutus-script-reexecutor 
+
+test-suite test
+  type:           exitcode-stdio-1.0
+  main-is:        Test.hs
+  hs-source-dirs: test
+  build-depends:
+    , base >=4.9     && <5
+    , plutus-script-reexecutor 

@@ -84,6 +84,7 @@ let
     tools.cabal-fmt
 
     inputs.cardano-node.packages.${pkgs.system}.cardano-node
+    inputs.cardano-node.packages.${pkgs.system}.cardano-testnet
     inputs.cardano-node.packages.${pkgs.system}.cardano-cli
 
     pkgs.shellcheck

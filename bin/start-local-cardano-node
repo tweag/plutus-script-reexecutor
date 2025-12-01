@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# Executable Paths
+# ------------------------------------------------------------------------------
+
+export CARDANO_CLI="cardano-cli"
+export CARDANO_NODE="cardano-node"
+CARDANO_TESTNET="cardano-testnet"
+
+# ------------------------------------------------------------------------------
+# Testnet configuration
+# ------------------------------------------------------------------------------
+
+NUM_POOL_NODES=1
+OUTPUT_DIR="./devnet-env"
+TESTNET_MAGIC="42"
+
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
+
+# TODO: Make the script idempotent.
+#
+# This script is currently not idempotent. Running "cardano-testnet" multiple
+# times errors out. Investigate why?
+#
+# Removing the $OUTPUT_DIR and re-running the script will work and bypass one
+# failure. But removing the $OUTPUT_DIR everytime may not be the ideal workflow.
+
+$CARDANO_TESTNET cardano \
+    --num-pool-nodes $NUM_POOL_NODES \
+    --conway-era \
+    --enable-new-epoch-state-logging \
+    --output-dir $OUTPUT_DIR \
+    --testnet-magic $TESTNET_MAGIC

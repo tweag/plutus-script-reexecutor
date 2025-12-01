@@ -20,3 +20,16 @@ write-ghc-environment-files: never
 
 tests: true
 benchmarks: true
+
+source-repository-package
+  type: git
+  location: https://github.com/composewell/streamly.git
+  tag: f6368ca1a500ef8c9fa39ade8c92b40d8cdacf65
+  --sha256: 11vbrhwp9242zswd2x0nnghh2y9lxgf2y1rksqf5bhsdf05f67qk
+
+source-repository-package
+  type: git
+  location: https://github.com/composewell/streamly.git
+  tag: f6368ca1a500ef8c9fa39ade8c92b40d8cdacf65
+  subdir: core
+  --sha256: 11vbrhwp9242zswd2x0nnghh2y9lxgf2y1rksqf5bhsdf05f67qk

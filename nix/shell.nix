@@ -37,14 +37,14 @@ let
   preCommitCheck = inputs.pre-commit-hooks.lib.${pkgs.system}.run {
 
     src = lib.cleanSources ../.;
-    
+
     hooks = {
       nixpkgs-fmt = {
         enable = false;
         package = pkgs.nixpkgs-fmt;
       };
       cabal-fmt = {
-        enable = false;
+        enable = true;
         package = tools.cabal-fmt;
       };
       stylish-haskell = {
@@ -53,7 +53,7 @@ let
         args = [ "--config" ".stylish-haskell.yaml" ];
       };
       fourmolu = {
-        enable = false;
+        enable = true;
         package = tools.fourmolu;
       };
       hlint = {

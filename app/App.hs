@@ -11,7 +11,7 @@ import Cardano.Api (
  )
 import Data.Function ((&))
 import Options.Applicative
-import PSR.Streaming (streamChainSyncEvents)
+import PSR.Streaming (getEventTransactions, streamChainSyncEvents)
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Stream.Prelude qualified as Stream
 
@@ -66,6 +66,13 @@ main :: IO ()
 main = do
     Options{..} <- execParser psrOpts
     let points = [ChainPointAtGenesis]
+    -- TODO: Use a logging interface instead of using putStrLn.
     putStrLn "Started..."
-    streamChainSyncEvents socketPath networkId points
-        & Stream.fold (Fold.drainMapM print)
+    -- TODO: Make the predicate depend on the config.
+    let predicate = const True
+    streamChainSyncEvents socketPath networkId points -- Stream m ChainSyncEvent
+        & Stream.concatMap (Stream.fromList . getEventTransactions) -- Stream m Transaction
+        -- TODO: Add a filter to the streaming pipeline to filter things out based
+        --       on the predicate.
+        -- TODO: Add the transformation: Stream m Transaction -> Stream m ScriptContext
+        & Stream.fold (Fold.drainMapM print) -- IO ()

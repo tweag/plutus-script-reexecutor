@@ -2,7 +2,10 @@
 -- Imports
 --------------------------------------------------------------------------------
 
-import Cardano.Api (ChainPoint (..), File (File), NetworkId (..), NetworkMagic (NetworkMagic), SocketPath)
+import Cardano.Api
+    ( ChainPoint (..), File (File), NetworkId (..), NetworkMagic (NetworkMagic)
+    , SocketPath
+    )
 import Data.Function ((&))
 import Options.Applicative
 import PSR.Streaming (streamChainSyncEvents)
@@ -21,31 +24,32 @@ data Options = Options
 
 parseOptions :: Parser Options
 parseOptions =
-    Options
-        <$> ( File
-                <$> strOption
-                    ( long "socket"
-                        <> metavar "PATH"
-                        <> help "Path to the cardano-node socket"
-                    )
-            )
-        <*> ( (Mainnet <$ flag' () (long "mainnet"))
-                <|> Testnet
-                . NetworkMagic
-                <$> option
-                    auto
-                    ( long "testnet"
-                        <> metavar "MAGIC"
-                        <> help "Network magic"
-                    )
-            )
+  Options
+    <$> optSocketPath
+    <*> optNetworkId
+  where
+    optSocketPath = File <$>
+      strOption
+          ( long "socket"
+              <> metavar "PATH"
+              <> help "Path to the cardano-node socket"
+          )
+
+    optNetworkId = optMainNet <|> optTestNet
+    optMainNet = Mainnet <$ flag' () (long "mainnet")
+    optTestNet = Testnet . NetworkMagic <$>
+      option
+          auto
+          ( long "testnet"
+              <> metavar "MAGIC"
+              <> help "Network magic"
+          )
 
 psrOpts :: ParserInfo Options
 psrOpts =
     info
         (parseOptions <**> helper)
         ( fullDesc
-            <> progDesc "Print all the things"
             <> header "plutus-script-reexecutor"
         )
 

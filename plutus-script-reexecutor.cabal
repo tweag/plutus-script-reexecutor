@@ -71,6 +71,7 @@ executable exec
     , plutus-script-reexecutor
     , streamly-core
     , streamly
+    , optparse-applicative
 
 benchmark bench
   import:         lang

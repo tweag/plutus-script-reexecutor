@@ -86,7 +86,7 @@ subscribeToChainSyncEvents socketPath networkId points callback =
       }
   where
 
-    -- When points == [] then we start streaming from the latest block.
+    -- TODO: When points == [] ensure we start streaming from the latest block.
     -- To start streaming from genesis, use [ChainPointAtGenesis].
     chainSyncClient =
       case points of
@@ -104,9 +104,8 @@ subscribeToChainSyncEvents socketPath networkId points callback =
         , recvMsgIntersectNotFound = throw NoIntersectionFound
         }
 
-    actionOnAwait = 
+    actionOnAwait =
       putStrLn "Waiting..."
-      -- pure ()
 
     -- This is required to go to the next block. Essentially forward the
     -- pointer.

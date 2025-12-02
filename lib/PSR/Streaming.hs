@@ -1,6 +1,9 @@
 module PSR.Streaming (
     ChainSyncEvent (..),
+    Transaction (..),
     streamChainSyncEvents,
+    getTransactions,
+    getEventTransactions,
 ) where
 
 --------------------------------------------------------------------------------
@@ -55,6 +58,25 @@ data ChainSyncEvent
 data ChainSyncEventException = NoIntersectionFound
     deriving stock (Show)
     deriving anyclass (Exception)
+
+data Transaction where
+    Transaction :: C.CardanoEra era -> C.Tx era -> Transaction
+
+instance Show Transaction where
+    show (Transaction _ t) = show t
+
+--------------------------------------------------------------------------------
+-- Utils
+--------------------------------------------------------------------------------
+
+getTransactions :: C.BlockInMode -> [Transaction]
+getTransactions bim =
+    case bim of
+        C.BlockInMode era blk -> Transaction era <$> C.getBlockTxs blk
+
+getEventTransactions :: ChainSyncEvent -> [Transaction]
+getEventTransactions (RollForward bim _) = getTransactions bim
+getEventTransactions _ = []
 
 --------------------------------------------------------------------------------
 -- Main

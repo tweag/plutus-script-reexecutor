@@ -23,6 +23,8 @@ import Streamly.Data.Stream.Prelude qualified as Stream
 -- Options
 --------------------------------------------------------------------------------
 
+-- TODO: Move CLI related logic into a separate module
+
 data Options = Options
     { socketPath :: SocketPath
     , networkId :: NetworkId

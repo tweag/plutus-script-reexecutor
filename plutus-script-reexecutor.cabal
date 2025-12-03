@@ -7,11 +7,9 @@ build-type:    Simple
 common lang
   default-language:   Haskell2010
   ghc-options:
-    -Wall
-    -Wcompat
-    -Wincomplete-record-updates
-    -Wincomplete-uni-patterns
-    -Wredundant-constraints
+    -Wall -Wcompat -Wincomplete-record-updates
+    -Wincomplete-uni-patterns -Wredundant-constraints
+
   default-extensions:
     BangPatterns
     BlockArguments
@@ -50,28 +48,29 @@ library
   hs-source-dirs:  lib
   exposed-modules: PSR.Streaming
   build-depends:
-    , base                         >=4.9   && <5
+    , base                         >=4.9 && <5
     , cardano-api
     , cardano-ledger-alonzo
     , cardano-ledger-core
     , cardano-slotting
+    , containers
     , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols
-    , streamly-core
     , streamly
+    , streamly-core
 
 executable exec
   import:         lang
   main-is:        App.hs
   hs-source-dirs: app
   build-depends:
-    , base                     >=4.9   && <5
+    , base                      >=4.9 && <5
     , cardano-api
-    , plutus-script-reexecutor
-    , streamly-core
-    , streamly
     , optparse-applicative
+    , plutus-script-reexecutor
+    , streamly
+    , streamly-core
 
 benchmark bench
   import:         lang
@@ -79,7 +78,7 @@ benchmark bench
   main-is:        Bench.hs
   hs-source-dirs: bench
   build-depends:
-    , base >=4.9     && <5
+    , base                      >=4.9 && <5
     , plutus-script-reexecutor
 
 test-suite test
@@ -88,5 +87,5 @@ test-suite test
   main-is:        Test.hs
   hs-source-dirs: test
   build-depends:
-    , base >=4.9     && <5
+    , base                      >=4.9 && <5
     , plutus-script-reexecutor

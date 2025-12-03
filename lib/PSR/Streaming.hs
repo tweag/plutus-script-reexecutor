@@ -4,6 +4,11 @@ module PSR.Streaming (
     streamChainSyncEvents,
     getTransactions,
     getEventTransactions,
+    getMintedValue,
+    queryInputUtxoMap,
+    getTxOutValue,
+    mkLocalNodeConnectInfo,
+    usingEraAndContent,
 ) where
 
 --------------------------------------------------------------------------------
@@ -12,21 +17,17 @@ module PSR.Streaming (
 
 import Cardano.Api (SocketPath)
 import Cardano.Api qualified as C
+import Control.Concurrent (forkIO)
+import Control.Exception (Exception, throw)
+import Control.Monad (void)
+import Data.Map.Strict (Map)
+import Data.Set qualified as Set
+import GHC.Generics (Generic)
 import Ouroboros.Network.Protocol.ChainSync.Client (
     ClientStIdle (..),
     ClientStIntersect (..),
     ClientStNext (..),
  )
-
--- import Cardano.Slotting.Block (BlockNo (..))
--- import Cardano.Slotting.Slot (WithOrigin (At, Origin), withOrigin)
-import Control.Exception (Exception, throw)
-import GHC.Generics (Generic)
-
--- import GHC.Word (Word64)
-
-import Control.Concurrent (forkIO)
-import Control.Monad (void)
 import Streamly.Data.Stream.Prelude (Stream)
 import Streamly.Data.Stream.Prelude qualified as Stream
 
@@ -76,6 +77,18 @@ instance Show Transaction where
 -- Utils
 --------------------------------------------------------------------------------
 
+mkLocalNodeConnectInfo :: C.NetworkId -> SocketPath -> C.LocalNodeConnectInfo
+mkLocalNodeConnectInfo networkId socketPath =
+    C.LocalNodeConnectInfo
+        { C.localConsensusModeParams =
+            -- This a parameter needed only for the Byron era.
+            -- Since the Byron era is over and the parameter has never
+            -- changed it is ok to hardcode this.
+            C.CardanoModeParams (C.EpochSlots 21600)
+        , C.localNodeNetworkId = networkId
+        , C.localNodeSocketPath = socketPath
+        }
+
 getTransactions :: C.BlockInMode -> [Transaction]
 getTransactions bim =
     case bim of
@@ -84,6 +97,50 @@ getTransactions bim =
 getEventTransactions :: ChainSyncEvent -> [Transaction]
 getEventTransactions (RollForward bim _) = getTransactions bim
 getEventTransactions _ = []
+
+getMintedValue :: C.Tx era -> C.Value
+getMintedValue =
+    C.txMintValueToValue . C.txMintValue . C.getTxBodyContent . C.getTxBody
+
+data QueryException
+    = QeAcquiringFailure C.AcquiringFailure
+    | QeUnsupportedNtcVersionError C.UnsupportedNtcVersionError
+    | QeEraMismatch C.EraMismatch
+    deriving stock (Show)
+    deriving anyclass (Exception)
+
+usingEraAndContent ::
+    C.Tx era ->
+    ( C.ShelleyBasedEra era ->
+      C.TxBodyContent C.ViewTx era ->
+      result
+    ) ->
+    result
+usingEraAndContent tx next = do
+    let txBody = C.getTxBody tx
+        txBodyContent = C.getTxBodyContent txBody
+    case txBody of
+        C.ShelleyTxBody era _ _ _ _ _ -> next era txBodyContent
+
+queryInputUtxoMap ::
+    forall era.
+    C.LocalNodeConnectInfo ->
+    C.Target C.ChainPoint ->
+    C.ShelleyBasedEra era ->
+    C.TxBodyContent C.ViewTx era ->
+    IO (Map C.TxIn (C.TxOut C.CtxUTxO era))
+queryInputUtxoMap conn cp era txBody = do
+    let txInsSet = Set.fromList $ map fst $ C.txIns txBody
+        query = C.queryUtxo era $ C.QueryUTxOByTxIn txInsSet
+    res <- C.executeLocalStateQueryExpr conn cp query
+    case res of
+        Left err -> throw $ QeAcquiringFailure err
+        Right (Left err) -> throw $ QeUnsupportedNtcVersionError err
+        Right (Right (Left err)) -> throw $ QeEraMismatch err
+        Right (Right (Right val)) -> pure $ C.unUTxO val
+
+getTxOutValue :: C.TxOut ctx era -> C.Value
+getTxOutValue (C.TxOut _ val _ _) = C.txOutValueToValue val
 
 --------------------------------------------------------------------------------
 -- Main
@@ -94,24 +151,15 @@ connect to a locally running node and fetch blocks from the given
 starting point.
 -}
 subscribeToChainSyncEvents ::
-    -- | Path to the node socket
-    SocketPath ->
-    C.NetworkId ->
+    -- | Connection Info
+    C.LocalNodeConnectInfo ->
     -- | The points on the chain to start streaming from
     [C.ChainPoint] ->
     (ChainSyncEvent -> IO ()) ->
     IO ()
-subscribeToChainSyncEvents socketPath networkId points callback =
+subscribeToChainSyncEvents conn points callback =
     C.connectToLocalNode
-        C.LocalNodeConnectInfo
-            { C.localConsensusModeParams =
-                -- This a parameter needed only for the Byron era.
-                -- Since the Byron era is over and the parameter has never
-                -- changed it is ok to hardcode this.
-                C.CardanoModeParams (C.EpochSlots 21600)
-            , C.localNodeNetworkId = networkId
-            , C.localNodeSocketPath = socketPath
-            }
+        conn
         C.LocalNodeClientProtocols
             { C.localChainSyncClient =
                 C.LocalChainSyncClient $ C.ChainSyncClient chainSyncClient
@@ -159,11 +207,10 @@ subscribeToChainSyncEvents socketPath networkId points callback =
                 }
 
 streamChainSyncEvents ::
-    -- | Path to the node socket
-    SocketPath ->
-    C.NetworkId ->
+    -- | Connection Info
+    C.LocalNodeConnectInfo ->
     -- | The points on the chain to start streaming from
     [C.ChainPoint] ->
     Stream IO ChainSyncEvent
-streamChainSyncEvents s n p =
-    Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents s n p)
+streamChainSyncEvents conn points =
+    Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)

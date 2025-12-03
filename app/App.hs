@@ -11,7 +11,7 @@ import Cardano.Api (
  )
 import Data.Function ((&))
 import Options.Applicative
-import PSR.Streaming (getEventTransactions, streamChainSyncEvents)
+import PSR.Streaming
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Stream.Prelude qualified as Stream
 
@@ -70,10 +70,10 @@ main = do
     putStrLn "Started..."
     -- TODO: Make the predicate depend on the config.
     let predicate = const True
-    streamChainSyncEvents socketPath networkId points -- Stream m ChainSyncEvent
+    let conn = mkLocalNodeConnectInfo networkId socketPath
+    streamChainSyncEvents conn points -- Stream m ChainSyncEvent
     -- TODO: Try to replace "concatMap" with "unfoldEach".
         & Stream.concatMap (Stream.fromList . getEventTransactions) -- Stream m Transaction
         -- TODO: Add a filter to the streaming pipeline to filter things out based
         --       on the predicate.
-        -- TODO: Add the transformation: Stream m Transaction -> Stream m ScriptContext
         & Stream.fold (Fold.drainMapM print) -- IO ()

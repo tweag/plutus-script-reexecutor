@@ -8,7 +8,6 @@ module PSR.Streaming (
     queryInputUtxoMap,
     getTxOutValue,
     mkLocalNodeConnectInfo,
-    usingEraAndContent,
     getPolicySet,
 ) where
 
@@ -97,19 +96,6 @@ getTransactions bim =
     case bim of
         C.BlockInMode era blk -> Transaction era <$> C.getBlockTxs blk
 
-usingEraAndContent ::
-    C.Tx era ->
-    ( C.ShelleyBasedEra era ->
-      C.TxBodyContent C.ViewTx era ->
-      result
-    ) ->
-    result
-usingEraAndContent tx next = do
-    let txBody = C.getTxBody tx
-        txBodyContent = C.getTxBodyContent txBody
-    case txBody of
-        C.ShelleyTxBody era _ _ _ _ _ -> next era txBodyContent
-
 getEventTransactions :: ChainSyncEvent -> (C.ChainPoint, [Transaction])
 getEventTransactions (RollForward bim cp) =
     (C.chainTipToChainPoint cp, getTransactions bim)
@@ -130,11 +116,14 @@ queryInputUtxoMap ::
     forall era.
     C.LocalNodeConnectInfo ->
     C.ChainPoint ->
-    C.ShelleyBasedEra era ->
-    C.TxBodyContent C.ViewTx era ->
+    C.Tx era ->
     IO (Map C.TxIn (C.TxOut C.CtxUTxO era))
-queryInputUtxoMap conn cp era txBody = do
-    let txInsSet = Set.fromList $ map fst $ C.txIns txBody
+queryInputUtxoMap conn cp tx = do
+    let txBody = C.getTxBody tx
+        txBodyContent = C.getTxBodyContent txBody
+        era = case txBody of
+            C.ShelleyTxBody era' _ _ _ _ _ -> era'
+    let txInsSet = Set.fromList $ map fst $ C.txIns txBodyContent
         query = C.queryUtxo era $ C.QueryUTxOByTxIn txInsSet
     res <- C.executeLocalStateQueryExpr conn (C.SpecificPoint cp) query
     case res of

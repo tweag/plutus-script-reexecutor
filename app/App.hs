@@ -88,7 +88,7 @@ shouldTrackTransaction conn confPolicySet cp (Transaction _ tx) =
 
     isUsedInSpendingMode :: IO Bool
     isUsedInSpendingMode = do
-        umap <- usingEraAndContent tx (queryInputUtxoMap conn cp)
+        umap <- queryInputUtxoMap conn cp tx
         let valueSetList = getPolicySet . getTxOutValue <$> Map.elems umap
             combinedPolicySet = Set.unions valueSetList
         pure $ hasIntersectionWithConf combinedPolicySet

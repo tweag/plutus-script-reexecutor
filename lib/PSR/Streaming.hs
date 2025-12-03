@@ -9,6 +9,7 @@ module PSR.Streaming (
     getTxOutValue,
     mkLocalNodeConnectInfo,
     usingEraAndContent,
+    getPolicySet,
 ) where
 
 --------------------------------------------------------------------------------
@@ -21,6 +22,8 @@ import Control.Concurrent (forkIO)
 import Control.Exception (Exception, throw)
 import Control.Monad (void)
 import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Generics (Generic)
 import Ouroboros.Network.Protocol.ChainSync.Client (
@@ -94,21 +97,6 @@ getTransactions bim =
     case bim of
         C.BlockInMode era blk -> Transaction era <$> C.getBlockTxs blk
 
-getEventTransactions :: ChainSyncEvent -> [Transaction]
-getEventTransactions (RollForward bim _) = getTransactions bim
-getEventTransactions _ = []
-
-getMintedValue :: C.Tx era -> C.Value
-getMintedValue =
-    C.txMintValueToValue . C.txMintValue . C.getTxBodyContent . C.getTxBody
-
-data QueryException
-    = QeAcquiringFailure C.AcquiringFailure
-    | QeUnsupportedNtcVersionError C.UnsupportedNtcVersionError
-    | QeEraMismatch C.EraMismatch
-    deriving stock (Show)
-    deriving anyclass (Exception)
-
 usingEraAndContent ::
     C.Tx era ->
     ( C.ShelleyBasedEra era ->
@@ -122,17 +110,33 @@ usingEraAndContent tx next = do
     case txBody of
         C.ShelleyTxBody era _ _ _ _ _ -> next era txBodyContent
 
+getEventTransactions :: ChainSyncEvent -> (C.ChainPoint, [Transaction])
+getEventTransactions (RollForward bim cp) =
+    (C.chainTipToChainPoint cp, getTransactions bim)
+getEventTransactions (RollBackward cp _) = (cp, [])
+
+getMintedValue :: C.Tx era -> C.Value
+getMintedValue =
+    C.txMintValueToValue . C.txMintValue . C.getTxBodyContent . C.getTxBody
+
+data QueryException
+    = QeAcquiringFailure C.AcquiringFailure
+    | QeUnsupportedNtcVersionError C.UnsupportedNtcVersionError
+    | QeEraMismatch C.EraMismatch
+    deriving stock (Show)
+    deriving anyclass (Exception)
+
 queryInputUtxoMap ::
     forall era.
     C.LocalNodeConnectInfo ->
-    C.Target C.ChainPoint ->
+    C.ChainPoint ->
     C.ShelleyBasedEra era ->
     C.TxBodyContent C.ViewTx era ->
     IO (Map C.TxIn (C.TxOut C.CtxUTxO era))
 queryInputUtxoMap conn cp era txBody = do
     let txInsSet = Set.fromList $ map fst $ C.txIns txBody
         query = C.queryUtxo era $ C.QueryUTxOByTxIn txInsSet
-    res <- C.executeLocalStateQueryExpr conn cp query
+    res <- C.executeLocalStateQueryExpr conn (C.SpecificPoint cp) query
     case res of
         Left err -> throw $ QeAcquiringFailure err
         Right (Left err) -> throw $ QeUnsupportedNtcVersionError err
@@ -141,6 +145,9 @@ queryInputUtxoMap conn cp era txBody = do
 
 getTxOutValue :: C.TxOut ctx era -> C.Value
 getTxOutValue (C.TxOut _ val _ _) = C.txOutValueToValue val
+
+getPolicySet :: C.Value -> Set C.PolicyId
+getPolicySet val = Map.keysSet (C.valueToPolicyAssets val)
 
 --------------------------------------------------------------------------------
 -- Main

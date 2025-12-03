@@ -67,6 +67,7 @@ executable exec
   build-depends:
     , base                      >=4.9 && <5
     , cardano-api
+    , containers
     , optparse-applicative
     , plutus-script-reexecutor
     , streamly

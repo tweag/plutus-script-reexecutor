@@ -46,7 +46,10 @@ common lang
 library
   import:          lang
   hs-source-dirs:  lib
-  exposed-modules: PSR.Streaming
+  exposed-modules:
+    PSR.ConfigMap
+    PSR.Streaming
+
   build-depends:
     , base                         >=4.9 && <5
     , cardano-api
@@ -59,10 +62,12 @@ library
     , ouroboros-network-protocols
     , streamly
     , streamly-core
+    , yaml
 
 executable exec
   import:         lang
   main-is:        App.hs
+  other-modules:  Options
   hs-source-dirs: app
   build-depends:
     , base                      >=4.9 && <5
@@ -72,6 +77,7 @@ executable exec
     , plutus-script-reexecutor
     , streamly
     , streamly-core
+    , yaml
 
 benchmark bench
   import:         lang

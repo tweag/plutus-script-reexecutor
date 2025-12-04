@@ -66,10 +66,9 @@ data ChainSyncEventException = NoIntersectionFound
     deriving anyclass (Exception)
 
 data Transaction where
-    Transaction :: C.CardanoEra era -> C.Tx era -> Transaction
+    Transaction :: C.Tx era -> Transaction
 
-instance Show Transaction where
-    show (Transaction _ t) = show t
+deriving instance Show Transaction
 
 --------------------------------------------------------------------------------
 -- Streaming Utils

@@ -49,6 +49,7 @@ library
   exposed-modules:
     PSR.Chain
     PSR.ConfigMap
+    PSR.ContextBuilder
     PSR.Streaming
 
   build-depends:

@@ -10,6 +10,7 @@ import Options
 import Options.Applicative
 import PSR.Chain
 import PSR.ConfigMap qualified as CM
+import PSR.ContextBuilder
 import PSR.Streaming
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Stream.Prelude qualified as Stream
@@ -42,10 +43,11 @@ main = do
         & Stream.postscanl trackPreviousChainPoint
         -- TODO: Try to replace "concatMap" with "unfoldEach".
         & Stream.concatMap (Stream.fromList . (\(a, b) -> (a,) <$> b))
-        & Stream.mapM
-            ( \a ->
-                fmap (a,)
-                    <$> uncurry (getIntersectingPolicies conn confPolicyMap) a
-            )
-        & Stream.catMaybes
+        & fmap (uncurry mkContext0)
+        -- NOTE: To debug the filter function use filterM along with logging.
+        & Stream.filter
+            (not . Map.null . Map.restrictKeys confPolicyMap . getMintPolicies)
+        & Stream.mapM (mkContext1 conn)
+        & Stream.filter
+            (not . Map.null . Map.restrictKeys confPolicyMap . getSpendPolicies)
         & Stream.fold (Fold.drainMapM print)

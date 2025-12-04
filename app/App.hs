@@ -4,65 +4,18 @@
 
 import Cardano.Api (
     ChainPoint (..),
-    File (File),
-    NetworkId (..),
-    NetworkMagic (NetworkMagic),
-    SocketPath,
  )
 import Cardano.Api qualified as C
 import Data.Function ((&))
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Options
 import Options.Applicative
 import PSR.Streaming
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Stream.Prelude qualified as Stream
-
---------------------------------------------------------------------------------
--- Options
---------------------------------------------------------------------------------
-
--- TODO: Move CLI related logic into a separate module
-
-data Options = Options
-    { socketPath :: SocketPath
-    , networkId :: NetworkId
-    }
-    deriving (Show, Eq)
-
-parseOptions :: Parser Options
-parseOptions =
-    Options
-        <$> optSocketPath
-        <*> optNetworkId
-  where
-    optSocketPath =
-        File
-            <$> strOption
-                ( long "socket"
-                    <> metavar "PATH"
-                    <> help "Path to the cardano-node socket"
-                )
-
-    optNetworkId = optMainNet <|> optTestNet
-    optMainNet = Mainnet <$ flag' () (long "mainnet")
-    optTestNet =
-        Testnet . NetworkMagic
-            <$> option
-                auto
-                ( long "testnet"
-                    <> metavar "MAGIC"
-                    <> help "Network magic"
-                )
-
-psrOpts :: ParserInfo Options
-psrOpts =
-    info
-        (parseOptions <**> helper)
-        ( fullDesc
-            <> header "plutus-script-reexecutor"
-        )
+import System.Exit (exitFailure)
 
 --------------------------------------------------------------------------------
 -- Main

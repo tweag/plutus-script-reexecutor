@@ -10,6 +10,7 @@ import Options.Applicative
 data Options = Options
     { socketPath :: SocketPath
     , networkId :: NetworkId
+    , scriptYaml :: FilePath
     }
     deriving (Show, Eq)
 
@@ -18,6 +19,7 @@ parseOptions =
     Options
         <$> optSocketPath
         <*> optNetworkId
+        <*> optScriptYaml
   where
     optSocketPath =
         File
@@ -37,6 +39,12 @@ parseOptions =
                     <> metavar "MAGIC"
                     <> help "Network magic"
                 )
+    optScriptYaml =
+        strOption
+            ( long "script-yaml"
+                <> metavar "PATH"
+                <> help "Path to script.yaml"
+            )
 
 psrOpts :: ParserInfo Options
 psrOpts =

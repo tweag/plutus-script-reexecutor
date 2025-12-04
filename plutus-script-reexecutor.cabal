@@ -47,6 +47,7 @@ library
   import:          lang
   hs-source-dirs:  lib
   exposed-modules:
+    PSR.Chain
     PSR.ConfigMap
     PSR.Streaming
 

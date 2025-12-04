@@ -40,10 +40,12 @@
     extra-substituters = [ 
       "https://cache.iog.io" 
       "https://cache.zw3rk.com" 
+      "https://plutus-script-reexecutor.cachix.org"
     ];
     extra-trusted-public-keys = [
       "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
       "loony-tools:pr9m4BkM/5/eSTZlkQyRt57Jz7OMBxNSUiMC4FkcNfk="
+      "plutus-script-reexecutor.cachix.org-1:quy7tNPhVnfvx8oCH8Jji7Obj+hdyd09k3igdcIseh4="
     ];
     allow-import-from-derivation = true;
     accept-flake-config = true;

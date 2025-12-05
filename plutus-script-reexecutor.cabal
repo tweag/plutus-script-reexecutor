@@ -1,34 +1,100 @@
 cabal-version: 3.4
-name:          plutus-script-reexecutor 
+name:          plutus-script-reexecutor
 version:       0.1.0.0
 license:       MIT
 build-type:    Simple
 
+common lang
+  default-language:   Haskell2010
+  ghc-options:
+    -Wall -Wcompat -Wincomplete-record-updates
+    -Wincomplete-uni-patterns -Wredundant-constraints
+
+  default-extensions:
+    BangPatterns
+    BlockArguments
+    DataKinds
+    DeriveAnyClass
+    DeriveFoldable
+    DeriveFunctor
+    DeriveGeneric
+    DeriveLift
+    DeriveTraversable
+    DerivingStrategies
+    ExplicitForAll
+    FlexibleContexts
+    FlexibleInstances
+    GADTs
+    GeneralizedNewtypeDeriving
+    ImportQualifiedPost
+    LambdaCase
+    MultiParamTypeClasses
+    NamedFieldPuns
+    NamedFieldPuns
+    NumericUnderscores
+    OverloadedStrings
+    QuasiQuotes
+    RecordWildCards
+    ScopedTypeVariables
+    StandaloneDeriving
+    TemplateHaskell
+    TupleSections
+    TypeApplications
+    TypeOperators
+    ViewPatterns
+
 library
+  import:          lang
   hs-source-dirs:  lib
-  exposed-modules: Lib
+  exposed-modules:
+    PSR.Chain
+    PSR.ConfigMap
+    PSR.ContextBuilder
+    PSR.Streaming
+
   build-depends:
-    , base                         >=4.9   && <5
+    , base                         >=4.9 && <5
+    , cardano-api
+    , cardano-ledger-alonzo
+    , cardano-ledger-core
+    , cardano-slotting
+    , containers
+    , ouroboros-consensus
+    , ouroboros-consensus-cardano
+    , ouroboros-network-protocols
+    , streamly
+    , streamly-core
+    , yaml
 
 executable exec
+  import:         lang
   main-is:        App.hs
+  other-modules:  Options
   hs-source-dirs: app
   build-depends:
-    , base                     >=4.9   && <5
-    , plutus-script-reexecutor 
+    , base                      >=4.9 && <5
+    , cardano-api
+    , containers
+    , optparse-applicative
+    , plutus-script-reexecutor
+    , streamly
+    , streamly-core
+    , yaml
 
 benchmark bench
+  import:         lang
   type:           exitcode-stdio-1.0
   main-is:        Bench.hs
   hs-source-dirs: bench
   build-depends:
-    , base >=4.9     && <5
-    , plutus-script-reexecutor 
+    , base                      >=4.9 && <5
+    , plutus-script-reexecutor
 
 test-suite test
+  import:         lang
   type:           exitcode-stdio-1.0
   main-is:        Test.hs
   hs-source-dirs: test
   build-depends:
-    , base >=4.9     && <5
-    , plutus-script-reexecutor 
+    , base                      >=4.9 && <5
+    , plutus-script-reexecutor

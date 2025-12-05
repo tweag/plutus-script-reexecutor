@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest 
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v30
@@ -22,6 +22,10 @@ jobs:
             accept-flake-config = true
             extra-substituters = https://cache.iog.io
             extra-trusted-public-keys = hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
+            system = x86_64-darwin
+            extra-platforms = aarch64-darwin
+            sandbox = false
+            extra-sandbox-paths = /System/Library/Frameworks /System/Library/PrivateFrameworks /usr/lib /private/tmp /private/var/tmp /usr/bin/env
       - uses: cachix/cachix-action@v14
         with:
           name: plutus-script-reexecutor 

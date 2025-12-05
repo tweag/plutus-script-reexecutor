@@ -102,7 +102,7 @@ let
   ];
 
   shell = project.shellFor {
-    name = "my-project-shell-${project.args.compiler-nix-name}";
+    name = "plutus-script-reexecutor-shell-${project.args.compiler-nix-name}";
 
     buildInputs = lib.concatLists [
       commonPkgs

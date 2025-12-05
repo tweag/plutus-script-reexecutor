@@ -3,11 +3,9 @@
 --------------------------------------------------------------------------------
 
 import Cardano.Api qualified as C
-import Control.Monad (when)
 import Data.Function ((&))
 import Data.Map qualified as Map
-
--- import Data.Set qualified as Set
+import Data.Set qualified as Set
 import Data.Yaml (decodeFileThrow)
 import Options
 import Options.Applicative
@@ -47,20 +45,9 @@ main = do
         -- TODO: Try to replace "concatMap" with "unfoldEach".
         & Stream.concatMap (Stream.fromList . (\(a, b) -> (a,) <$> b))
         & Stream.mapM (mkContext1 conn . uncurry mkContext0)
-        {-
         & Stream.filter
             ( \ctx1@Context1{..} ->
                 not . Map.null . Map.restrictKeys confPolicyMap $
                     Set.union (getMintPolicies context0) (getSpendPolicies ctx1)
-        -}
-        & Stream.filterM
-            ( \ctx1@Context1{..} -> do
-                let isMint =
-                        not . Map.null . Map.restrictKeys confPolicyMap $ getMintPolicies context0
-                    isSpend =
-                        not . Map.null . Map.restrictKeys confPolicyMap $ getSpendPolicies ctx1
-                when isMint $ putStrLn "Found in mint"
-                when isSpend $ putStrLn "Found in spend"
-                pure $ isMint || isSpend
             )
         & Stream.fold (Fold.drainMapM print)

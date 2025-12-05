@@ -58,7 +58,11 @@ library
     , cardano-ledger-alonzo
     , cardano-ledger-core
     , cardano-slotting
+    , constraints-extras
     , containers
+    , dependent-map
+    , dependent-sum
+    , dependent-sum-template
     , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols

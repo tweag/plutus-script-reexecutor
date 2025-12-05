@@ -1,3 +1,9 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+
 module PSR.ContextBuilder (
     Context0 (..),
     Context1 (..),
@@ -5,6 +11,11 @@ module PSR.ContextBuilder (
     getMintPolicies,
     mkContext1,
     getSpendPolicies,
+    TxContext (..),
+    writeContext,
+    getContext,
+    writeContextEra,
+    getContextEra,
 ) where
 
 --------------------------------------------------------------------------------
@@ -12,12 +23,71 @@ module PSR.ContextBuilder (
 --------------------------------------------------------------------------------
 
 import Cardano.Api qualified as C
+import Data.Constraint.Extras.TH (deriveArgDict)
+import Data.Dependent.Map (DMap)
+import Data.Dependent.Map qualified as DMap
+import Data.Dependent.Sum ((==>))
+import Data.Functor.Identity (Identity (..))
+import Data.GADT.Compare.TH (deriveGCompare, deriveGEq)
+import Data.GADT.Show.TH (deriveGShow)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Type.Equality (TestEquality (testEquality), type (:~:) (Refl))
 import PSR.Chain
 import PSR.Streaming
+
+data EraCtxKey era a where
+    EraTransaction :: EraCtxKey era (C.Tx era)
+    EraMintValue :: EraCtxKey era (C.TxMintValue C.ViewTx era)
+    EraInputUtxoMap :: EraCtxKey era (Map C.TxIn (C.TxOut C.CtxUTxO era))
+
+deriveGEq ''EraCtxKey
+deriveGCompare ''EraCtxKey
+deriveGShow ''EraCtxKey
+
+-- deriveArgDict ''EraCtxKey
+
+type EraContext era = DMap (EraCtxKey era) Identity
+
+data CtxKey a where
+    CtxChainPoint :: CtxKey C.ChainPoint
+    CtxPrevChainPoint :: CtxKey C.ChainPoint
+
+deriveGEq ''CtxKey
+deriveGCompare ''CtxKey
+deriveGShow ''CtxKey
+deriveArgDict ''CtxKey
+
+data TxContext where
+    TxContext ::
+        { ctx :: DMap CtxKey Identity
+        , theEra :: C.ShelleyBasedEra era
+        , eraCtx :: EraContext era
+        } ->
+        TxContext
+
+writeContext :: CtxKey a -> a -> TxContext -> TxContext
+writeContext key val txctx = txctx{ctx = DMap.insert key (pure val) (ctx txctx)}
+
+getContext :: CtxKey a -> TxContext -> Maybe a
+getContext key = fmap runIdentity . DMap.lookup key . ctx
+
+writeContextEra :: forall era a. (C.IsShelleyBasedEra era) => EraCtxKey era a -> a -> TxContext -> Maybe TxContext
+writeContextEra key val (TxContext ctx era eraMap) = case testEquality era (C.shelleyBasedEra @era) of
+    Nothing -> Nothing
+    Just Refl -> Just (TxContext ctx era (DMap.insert key (pure val) eraMap))
+
+getContextEra :: forall era a. (C.IsShelleyBasedEra era) => EraCtxKey era a -> TxContext -> Maybe a
+getContextEra key (TxContext _ era eraMap) = case testEquality era (C.shelleyBasedEra @era) of
+    Nothing -> Nothing
+    Just Refl -> runIdentity <$> DMap.lookup key eraMap
+
+convertEra :: C.ShelleyBasedEra era -> EraCtxKey anyEra a -> EraCtxKey era b
+convertEra _ EraTransaction = EraTransaction
+convertEra _ EraMintValue = EraMintValue
+convertEra _ EraInputUtxoMap = EraInputUtxoMap
 
 --------------------------------------------------------------------------------
 -- Types

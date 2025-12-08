@@ -54,16 +54,20 @@ library
 
   build-depends:
     , base                         >=4.9 && <5
+    , bytestring
     , cardano-api
     , cardano-ledger-alonzo
     , cardano-ledger-core
     , cardano-slotting
     , containers
+    , memory
     , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols
+    , plutus-ledger-api
     , streamly
     , streamly-core
+    , text
     , yaml
 
 executable exec
@@ -73,6 +77,7 @@ executable exec
   hs-source-dirs: app
   build-depends:
     , base                      >=4.9 && <5
+    , bytestring
     , cardano-api
     , containers
     , optparse-applicative

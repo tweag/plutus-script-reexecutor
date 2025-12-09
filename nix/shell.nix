@@ -87,6 +87,7 @@ let
     inputs.cardano-node.packages.${pkgs.system}.cardano-testnet
     inputs.cardano-node.packages.${pkgs.system}.cardano-cli
 
+    pkgs.process-compose
     pkgs.shellcheck
     pkgs.nixpkgs-fmt
     pkgs.github-cli

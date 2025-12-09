@@ -1,10 +1,12 @@
 module PSR.ContextBuilder (
     Context0 (..),
     Context1 (..),
+    Context2 (..),
     mkContext0,
     getMintPolicies,
     mkContext1,
     getSpendPolicies,
+    mkContext2,
 ) where
 
 --------------------------------------------------------------------------------
@@ -12,11 +14,13 @@ module PSR.ContextBuilder (
 --------------------------------------------------------------------------------
 
 import Cardano.Api qualified as C
+import Control.Monad (guard)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import PSR.Chain
+import PSR.ConfigMap (ConfigMap (..), ResolvedScript)
 import PSR.Streaming
 
 --------------------------------------------------------------------------------
@@ -51,6 +55,13 @@ data Context1 where
 
 deriving instance Show Context1
 
+data Context2 where
+    Context2 ::
+        { context1 :: Context1
+        , ctxRelevantScripts :: Map.Map C.PolicyId ResolvedScript
+        } ->
+        Context2
+
 -- NOTE: The final context should have everything required to run the
 -- transaction locally.
 
@@ -81,3 +92,11 @@ mkContext1 conn c0@Context0{..} = do
 getSpendPolicies :: Context1 -> Set C.PolicyId
 getSpendPolicies Context1{..} =
     Set.unions $ getPolicySet . getTxOutValue <$> Map.elems ctxInputUtxoMap
+
+mkContext2 :: ConfigMap -> Context1 -> Maybe Context2
+mkContext2 ConfigMap{..} ctx1@Context1{..} = do
+    let interestingScripts =
+            Map.restrictKeys cmScripts $
+                Set.union (getMintPolicies context0) (getSpendPolicies ctx1)
+    guard (not $ Map.null interestingScripts)
+    pure (Context2 ctx1 interestingScripts)

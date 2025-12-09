@@ -25,7 +25,7 @@ data ConfigMapFile = ConfigMapFile
 instance FromJSON ConfigMapFile where
     parseJSON = withObject "ConfigMapFile" $ \v ->
         ConfigMapFile
-            <$> v .: "start"
+            <$> v .:? "start"
             <*> v .: "scripts"
 
 instance ToJSON ConfigMapFile where
@@ -60,7 +60,7 @@ instance FromJSON ScriptDetails where
  or another file on disk.
 -}
 data ScriptSource
-    = CBORHex JSONEncodedScript
+    = CBORHex TextEnvelope
     | FromFile FilePath
     deriving (Show, Eq)
 
@@ -89,35 +89,9 @@ data ResolvedScript = ResolvedScript
     , rsSource :: Maybe ScriptSource
     , -- TODO: Should this be incorporated into rsScourse?
       --       Can't be Just when rsSource is Nothing
-      rsScriptFileContent :: Maybe JSONEncodedScript
+      rsScriptFileContent :: Maybe ScriptInAnyLang
     }
     deriving (Show, Eq)
-
-{- | Plutus script encoded in JSON (or Yaml) including its version and
-  hex encoded script
--}
-data JSONEncodedScript = JSONEncodedScript
-    { jesType :: AnyPlutusScriptVersion
-    , jesDescription :: Maybe Text
-    , jesCborHex :: SerialisedScript
-    }
-    deriving (Show, Eq)
-
-instance FromJSON JSONEncodedScript where
-    parseJSON = withObject "JSONEncodedScript" $ \v ->
-        JSONEncodedScript
-            <$> v .: "type"
-            <*> v .:? "description"
-            <*> (parseSerialisedScript =<< (v .: "cborHex"))
-
-instance ToJSON JSONEncodedScript where
-    toJSON (JSONEncodedScript ty desc scr) =
-        object $
-            concat
-                [ ["type" .= ty]
-                , maybe [] ((: []) . ("description" .=)) desc
-                , ["cborHex" .= serialisedScriptToText scr]
-                ]
 
 {- | Convert a Text containing hex encoded script into a (possible invalid)
 'SerialisedScript'
@@ -133,11 +107,18 @@ serialisedScriptToText = decodeUtf8 . convertToBase Base16 . fromShort
 -- | Resolve a script, either from disk or inline definition
 readScriptFile :: ScriptDetails -> ExceptT String IO ResolvedScript
 readScriptFile ScriptDetails{..} = do
+    let someTypeFor x v = FromSomeType x (ScriptInAnyLang (PlutusScriptLanguage v) . PlutusScript v)
+        v1 = someTypeFor (AsPlutusScript AsPlutusScriptV1) PlutusScriptV1
+        v2 = someTypeFor (AsPlutusScript AsPlutusScriptV2) PlutusScriptV2
+        v3 = someTypeFor (AsPlutusScript AsPlutusScriptV3) PlutusScriptV3
+        scriptTypes = [v1, v2, v3]
+
     rsScriptFileContent <- for sdSource $ \case
         FromFile path -> do
             liftIO $ putStrLn $ "Reading script from file: " <> path
-            modifyError show $ ExceptT $ decodeFileEither path
-        CBORHex content -> pure content
+            modifyError show $ ExceptT $ readFileTextEnvelopeAnyOf scriptTypes (File path)
+        CBORHex content ->
+            modifyError show $ liftEither $ deserialiseFromTextEnvelopeAnyOf scriptTypes content
 
     pure
         ResolvedScript

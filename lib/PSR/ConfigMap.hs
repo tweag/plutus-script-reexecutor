@@ -13,7 +13,14 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Traversable (for)
 import Data.Yaml (decodeFileEither, withObject)
 import Data.Yaml.Aeson (Parser, Value (Object), object, (.:), (.:?), (.=))
-import PlutusLedgerApi.Common
+import PlutusLedgerApi.Common (
+    MajorProtocolVersion,
+    PlutusLedgerLanguage (..),
+    ScriptForEvaluation,
+    SerialisedScript,
+    deserialiseScript,
+    ledgerLanguageIntroducedIn,
+ )
 
 -- | Represents the config map file on disk
 data ConfigMapFile = ConfigMapFile
@@ -90,7 +97,16 @@ data ResolvedScript = ResolvedScript
     , -- TODO: Should this be incorporated into rsScourse?
       --       Can't be Just when rsSource is Nothing
       rsScriptFileContent :: Maybe ScriptInAnyLang
+    , rsScriptForEvaluation :: Maybe (ScriptEvaluationParameters, ScriptForEvaluation)
     }
+    deriving (Show, Eq)
+
+data ScriptEvaluationParameters where
+    ScriptEvaluationParameters ::
+        { sepLanguage :: PlutusLedgerLanguage
+        , sepProtocolVersion :: MajorProtocolVersion
+        } ->
+        ScriptEvaluationParameters
     deriving (Show, Eq)
 
 {- | Convert a Text containing hex encoded script into a (possible invalid)
@@ -103,6 +119,22 @@ parseSerialisedScript =
 -- | Encode a SerialisedScript into Text
 serialisedScriptToText :: SerialisedScript -> Text
 serialisedScriptToText = decodeUtf8 . convertToBase Base16 . fromShort
+
+-- resolveScript :: ScriptInAnyLang -> _
+resolveScript :: ScriptInAnyLang -> ExceptT String IO (ScriptEvaluationParameters, ScriptForEvaluation)
+resolveScript (scr :: ScriptInAnyLang) = do
+    -- TODO: Is this the right protocol major version?
+    (lang, protocol, script) <- case scr of
+        ScriptInAnyLang (PlutusScriptLanguage PlutusScriptV1) (PlutusScript _ (PlutusScriptSerialised src)) ->
+            pure (PlutusV1, ledgerLanguageIntroducedIn PlutusV1, src)
+        ScriptInAnyLang (PlutusScriptLanguage PlutusScriptV2) (PlutusScript _ (PlutusScriptSerialised src)) ->
+            pure (PlutusV2, ledgerLanguageIntroducedIn PlutusV2, src)
+        ScriptInAnyLang (PlutusScriptLanguage PlutusScriptV3) (PlutusScript _ (PlutusScriptSerialised src)) ->
+            pure (PlutusV3, ledgerLanguageIntroducedIn PlutusV3, src)
+        _ -> throwError $ "Unsupported script: " ++ show scr
+
+    (ScriptEvaluationParameters lang protocol,)
+        <$> modifyError show (deserialiseScript lang protocol script)
 
 -- | Resolve a script, either from disk or inline definition
 readScriptFile :: ScriptDetails -> ExceptT String IO ResolvedScript
@@ -120,12 +152,15 @@ readScriptFile ScriptDetails{..} = do
         CBORHex content ->
             modifyError show $ liftEither $ deserialiseFromTextEnvelopeAnyOf scriptTypes content
 
+    rsScriptForEvaluation <- traverse resolveScript rsScriptFileContent
+
     pure
         ResolvedScript
             { rsScriptHash = sdScriptHash
             , rsName = sdName
             , rsSource = sdSource
             , rsScriptFileContent
+            , rsScriptForEvaluation
             }
 
 -- | Parse the config from a given Yaml file on disk

@@ -1,0 +1,21 @@
+version: "0.5"
+
+processes:
+  cardano-testnet:
+    command: "cabal run dev-local -- start-local-testnet"
+    readiness_probe:
+      exec:
+        # NOTE: devnet-env is hardcoded here.
+        # TODO: Add an endpoint in dev-local to health check testnet
+        command: "[ -S ./devnet-env/socket/node1/sock ]"
+      initial_delay_seconds: 1
+      period_seconds: 1
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 60
+
+  populate:
+    command: "cabal run dev-local -- populate"
+    depends_on:
+      cardano-testnet:
+        condition: process_healthy

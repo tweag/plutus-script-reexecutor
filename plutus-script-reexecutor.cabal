@@ -82,6 +82,7 @@ executable exec
     , containers
     , optparse-applicative
     , plutus-script-reexecutor
+    , pretty-simple
     , streamly
     , streamly-core
     , yaml

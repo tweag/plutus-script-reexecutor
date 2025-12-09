@@ -12,10 +12,20 @@ import PSR.ContextBuilder
 import PSR.Streaming
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Stream.Prelude qualified as Stream
+import Text.Pretty.Simple
 
 --------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
+
+compactPrintOpts :: OutputOptions
+compactPrintOpts =
+    defaultOutputOptionsDarkBg
+        { outputOptionsCompact = True
+        , outputOptionsCompactParens = True
+        , outputOptionsIndentAmount = 2
+        , outputOptionsStringStyle = Literal
+        }
 
 main :: IO ()
 main = do
@@ -36,4 +46,12 @@ main = do
         & Stream.concatMap (Stream.fromList . (\(a, b) -> (a,) <$> b))
         & Stream.mapM (mkContext1 conn . uncurry mkContext0)
         & Stream.mapMaybe (mkContext2 config)
+        & Stream.tap
+            ( Fold.drainMapM
+                ( \(Context2 ctx scripts) -> do
+                    pPrintOpt CheckColorTty compactPrintOpts ctx
+                    putStrLn "Found scripts:"
+                    mapM_ pPrint scripts
+                )
+            )
         & Stream.fold Fold.drain

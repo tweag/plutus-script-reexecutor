@@ -33,7 +33,8 @@ compactPrintOpts =
 main :: IO ()
 main = do
     Options{..} <- execParser psrOpts
-    config@CM.ConfigMap{..} <- either error pure =<< CM.readConfigMap scriptYaml
+    config@CM.ConfigMap{..} <-
+        CM.readConfigMap scriptYaml networkId socketPath >>= either error pure
 
     -- TODO: What's a better default here?
     let points = maybe [C.ChainPointAtGenesis] pure cmStart
@@ -43,14 +44,13 @@ main = do
     Async.withAsync (HTTP.run httpServerPort) $ \serverAsync -> do
       Async.link serverAsync
 
-      let conn = mkLocalNodeConnectInfo networkId socketPath
-      streamChainSyncEvents conn points
+      streamChainSyncEvents cmLocalNodeConn points
           & Stream.filter (not . isByron)
           & fmap getEventTransactions
           & Stream.postscanl trackPreviousChainPoint
           -- TODO: Try to replace "concatMap" with "unfoldEach".
           & Stream.concatMap (Stream.fromList . (\(a, b) -> (a,) <$> b))
-          & Stream.mapM (mkContext1 conn . uncurry mkContext0)
+          & Stream.mapM (mkContext1 cmLocalNodeConn . uncurry mkContext0)
           & Stream.mapMaybe (mkContext2 config)
           & Stream.tap
               ( Fold.drainMapM

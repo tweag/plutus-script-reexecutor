@@ -13,6 +13,7 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Traversable (for)
 import Data.Yaml (decodeFileEither, withObject)
 import Data.Yaml.Aeson (Parser, Value (Object), object, (.:), (.:?), (.=))
+import PSR.Chain (mkLocalNodeConnectInfo)
 import PlutusLedgerApi.Common (
     MajorProtocolVersion,
     PlutusLedgerLanguage (..),
@@ -87,6 +88,7 @@ instance ToJSON ScriptSource where
 data ConfigMap = ConfigMap
     { cmStart :: Maybe C.ChainPoint
     , cmScripts :: Map PolicyId ResolvedScript
+    , cmLocalNodeConn :: LocalNodeConnectInfo
     }
 
 -- | Information relating to a loaded script
@@ -163,13 +165,16 @@ readScriptFile ScriptDetails{..} = do
             , rsScriptForEvaluation
             }
 
--- | Parse the config from a given Yaml file on disk
+{- | Parse the config from a given Yaml file on disk
 readConfigMap :: FilePath -> IO (Either String ConfigMap)
-readConfigMap path = runExceptT $ do
-    ConfigMapFile{..} <- modifyError show $ ExceptT $ decodeFileEither path
+-}
+readConfigMap :: FilePath -> NetworkId -> SocketPath -> IO (Either String ConfigMap)
+readConfigMap scriptYaml networkId socketPath = runExceptT $ do
+    ConfigMapFile{..} <- modifyError show $ ExceptT $ decodeFileEither scriptYaml
     scripts' <- mapM readScriptFile cmfScripts
     pure
         ConfigMap
             { cmStart = cmfStart
             , cmScripts = Map.fromList [(rsScriptHash x, x) | x <- scripts']
+            , cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
             }

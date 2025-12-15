@@ -1,9 +1,9 @@
 
 
-start:
-  tag: ChainPoint
-  slot: 173770123
-  blockHash: 11347f36e8355cfaab28f8ddcd7d2d6f17ae03634eb5d22b2b43e7611ee15e20
+# start:
+#   tag: ChainPoint
+#   slot: 11617
+#   blockHash: 9b65597bb73e21d5b58a1f5958f8b95324b142727efb2746c577998e93df3463
 
 scripts:
   - script_hash: "b6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0" 
@@ -44,3 +44,5 @@ scripts:
   - script_hash: "ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b" 
     name: "unknown"
 
+  - script_hash: "195156f87f299562300852de1f1699d574e501b4ba886eab3ad6cf93"
+    name: "Local Policy"

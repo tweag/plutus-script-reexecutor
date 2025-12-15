@@ -37,6 +37,7 @@ import PSR.Streaming
 data Context0 where
     Context0 ::
         { ctxPrevChainPoint :: C.ChainPoint
+        , ctxShelleyBasedEra :: C.ShelleyBasedEra era
         , ctxTransaction :: C.Tx era
         , ctxMintValue :: C.TxMintValue C.ViewTx era
         } ->
@@ -70,9 +71,10 @@ data Context2 where
 --------------------------------------------------------------------------------
 
 mkContext0 :: C.ChainPoint -> Transaction -> Context0
-mkContext0 cp (Transaction tx) =
+mkContext0 cp (Transaction era tx) =
     Context0
         { ctxPrevChainPoint = cp
+        , ctxShelleyBasedEra = era
         , ctxTransaction = tx
         , ctxMintValue = C.txMintValue . C.getTxBodyContent . C.getTxBody $ tx
         }

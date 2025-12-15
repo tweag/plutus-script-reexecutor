@@ -1,8 +1,8 @@
 module Options where
 
 import Cardano.Api
-import Options.Applicative
 import Network.Wai.Handler.Warp (Port)
+import Options.Applicative
 
 --------------------------------------------------------------------------------
 -- Options
@@ -18,7 +18,7 @@ data Options = Options
     { socketPath :: SocketPath
     , networkId :: NetworkId
     , scriptYaml :: FilePath
-    , httpServerPort :: Port 
+    , httpServerPort :: Port
     }
     deriving (Show, Eq)
 
@@ -55,12 +55,13 @@ parseOptions =
                 <> help "Path to script.yaml"
             )
     optHTTPServerPort =
-        option auto 
-          ( long "http-server-port"
-            <> metavar "HTTP_SERVER_PORT"
-            <> help "Port of the http server"
-            <> value 8080 
-          )
+        option
+            auto
+            ( long "http-server-port"
+                <> metavar "HTTP_SERVER_PORT"
+                <> help "Port of the http server"
+                <> value 8080
+            )
 
 psrOpts :: ParserInfo Options
 psrOpts =

@@ -8,10 +8,10 @@ import Control.Monad (guard)
 import Data.Function ((&))
 import Options
 import Options.Applicative
-import qualified PSR.HTTP as HTTP
 import PSR.Chain
 import PSR.ConfigMap qualified as CM
 import PSR.ContextBuilder
+import PSR.HTTP qualified as HTTP
 import PSR.Streaming
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Stream.Prelude qualified as Stream
@@ -45,22 +45,22 @@ main = do
     putStrLn "Started..."
 
     Async.withAsync (HTTP.run httpServerPort) $ \serverAsync -> do
-      Async.link serverAsync
+        Async.link serverAsync
 
-      streamChainSyncEvents cmLocalNodeConn points
-          & Stream.filter (not . isByron)
-          & fmap getEventTransactions
-          & Stream.postscanl trackPreviousChainPoint
-          -- TODO: Try to replace "concatMap" with "unfoldEach".
-          -- TODO: CostModels should probably be requested here instead of per transaction
-          & Stream.concatMap (Stream.fromList . (\(a, b) -> (a,) <$> b))
-          & Stream.mapM (mkContext1 cmLocalNodeConn . uncurry mkContext0)
-          & Stream.mapMaybe (mkContext2 config)
-          & Stream.mapMaybeM (mkContext3 config)
-          & Stream.trace
-              ( \(Context3 (Context2 ctx scripts) _ _) -> do
-                  -- pCompact ctx
-                  putStrLn "Found scripts:"
-                  mapM_ pCompact scripts
-              )
-          & Stream.fold Fold.drain
+        streamChainSyncEvents cmLocalNodeConn points
+            & Stream.filter (not . isByron)
+            & fmap getEventTransactions
+            & Stream.postscanl trackPreviousChainPoint
+            -- TODO: Try to replace "concatMap" with "unfoldEach".
+            -- TODO: CostModels should probably be requested here instead of per transaction
+            & Stream.concatMap (Stream.fromList . (\(a, b) -> (a,) <$> b))
+            & Stream.mapM (mkContext1 cmLocalNodeConn . uncurry mkContext0)
+            & Stream.mapMaybe (mkContext2 config)
+            & Stream.mapMaybeM (mkContext3 config)
+            & Stream.trace
+                ( \(Context3 (Context2 ctx scripts) _ _) -> do
+                    -- pCompact ctx
+                    putStrLn "Found scripts:"
+                    mapM_ pCompact scripts
+                )
+            & Stream.fold Fold.drain

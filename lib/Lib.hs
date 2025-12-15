@@ -1,5 +1,4 @@
-module Lib where 
+module Lib where
 
 helloWorld :: String
 helloWorld = "Hello, World!"
-

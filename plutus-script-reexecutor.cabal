@@ -33,6 +33,7 @@ common lang
     NamedFieldPuns
     NumericUnderscores
     OverloadedStrings
+    PolyKinds
     QuasiQuotes
     RecordWildCards
     ScopedTypeVariables
@@ -40,10 +41,9 @@ common lang
     TemplateHaskell
     TupleSections
     TypeApplications
+    TypeFamilies
     TypeOperators
     ViewPatterns
-    PolyKinds
-    TypeFamilies
 
 library
   import:          lang
@@ -52,37 +52,43 @@ library
     PSR.Chain
     PSR.ConfigMap
     PSR.ContextBuilder
-    PSR.Streaming
     PSR.HTTP
     PSR.HTTP.API
     PSR.HTTP.Server
+    PSR.Streaming
 
   build-depends:
-    , base                         >=4.9 && <5
     , aeson
+    , base                         >=4.9 && <5
+    , bytestring
     , cardano-api
     , cardano-ledger-alonzo
+    , cardano-ledger-api
     , cardano-ledger-core
     , cardano-slotting
     , containers
     , data-default
+    , memory
+    , microlens
     , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols
-    , servant
-    , servant-server
-    , servant-queryparam-core
-    , servant-queryparam-server
-    , streamly
-    , streamly-core
+    , plutus-ledger-api
     , prometheus-client
     , prometheus-metrics-ghc
+    , servant
+    , servant-queryparam-core
+    , servant-queryparam-server
+    , servant-server
+    , streamly
+    , streamly-core
     , text
     , time
-    , yaml
+    , transformers
     , wai
     , wai-middleware-prometheus
     , warp
+    , yaml
 
 executable exec
   import:         lang
@@ -90,16 +96,18 @@ executable exec
   other-modules:  Options
   hs-source-dirs: app
   build-depends:
-    , base                      >=4.9 && <5
     , async
+    , base                      >=4.9 && <5
+    , bytestring
     , cardano-api
     , containers
     , optparse-applicative
     , plutus-script-reexecutor
+    , pretty-simple
     , streamly
     , streamly-core
-    , yaml
     , warp
+    , yaml
 
 benchmark bench
   import:         lang

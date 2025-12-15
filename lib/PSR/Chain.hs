@@ -14,6 +14,7 @@ where
 import Cardano.Api (SocketPath)
 import Cardano.Api qualified as C
 import Control.Exception (Exception, throw)
+import Data.Functor.Identity (Identity (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
@@ -74,7 +75,10 @@ mkLocalNodeConnectInfo networkId socketPath =
 getTransactions :: C.BlockInMode -> [Transaction]
 getTransactions bim =
     case bim of
-        C.BlockInMode _ blk -> Transaction <$> C.getBlockTxs blk
+        C.BlockInMode C.ByronEra _ -> []
+        C.BlockInMode era blk -> case runIdentity (C.requireShelleyBasedEra era) of
+            Just era' -> Transaction era' <$> C.getBlockTxs blk
+            Nothing -> error "Impossible!"
 
 getEventTransactions :: ChainSyncEvent -> (C.ChainPoint, [Transaction])
 getEventTransactions (RollForward bim cp) =

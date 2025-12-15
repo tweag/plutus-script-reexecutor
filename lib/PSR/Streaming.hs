@@ -66,7 +66,7 @@ data ChainSyncEventException = NoIntersectionFound
     deriving anyclass (Exception)
 
 data Transaction where
-    Transaction :: C.Tx era -> Transaction
+    Transaction :: C.ShelleyBasedEra era -> C.Tx era -> Transaction
 
 deriving instance Show Transaction
 

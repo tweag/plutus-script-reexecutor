@@ -38,8 +38,10 @@ main = do
     config@CM.ConfigMap{..} <-
         CM.readConfigMap scriptYaml networkId socketPath >>= either error pure
 
-    -- TODO: What's a better default here?
-    let points = maybe [C.ChainPointAtGenesis] pure cmStart
+    let conn = mkLocalNodeConnectInfo networkId socketPath
+    start <- maybe (C.chainTipToChainPoint <$> C.getLocalChainTip conn) pure cmStart
+    let points = [start]
+
     -- TODO: Use a logging interface instead of using putStrLn.
     putStrLn "Started..."
 

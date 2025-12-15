@@ -42,6 +42,8 @@ common lang
     TypeApplications
     TypeOperators
     ViewPatterns
+    PolyKinds
+    TypeFamilies
 
 library
   import:          lang
@@ -51,20 +53,36 @@ library
     PSR.ConfigMap
     PSR.ContextBuilder
     PSR.Streaming
+    PSR.HTTP
+    PSR.HTTP.API
+    PSR.HTTP.Server
 
   build-depends:
     , base                         >=4.9 && <5
+    , aeson
     , cardano-api
     , cardano-ledger-alonzo
     , cardano-ledger-core
     , cardano-slotting
     , containers
+    , data-default
     , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols
+    , servant
+    , servant-server
+    , servant-queryparam-core
+    , servant-queryparam-server
     , streamly
     , streamly-core
+    , prometheus-client
+    , prometheus-metrics-ghc
+    , text
+    , time
     , yaml
+    , wai
+    , wai-middleware-prometheus
+    , warp
 
 executable exec
   import:         lang
@@ -73,6 +91,7 @@ executable exec
   hs-source-dirs: app
   build-depends:
     , base                      >=4.9 && <5
+    , async
     , cardano-api
     , containers
     , optparse-applicative
@@ -80,6 +99,7 @@ executable exec
     , streamly
     , streamly-core
     , yaml
+    , warp
 
 benchmark bench
   import:         lang

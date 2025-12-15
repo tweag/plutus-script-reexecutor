@@ -19,6 +19,7 @@ data Options = Options
     , networkId :: NetworkId
     , scriptYaml :: FilePath
     , httpServerPort :: Port
+    , sqlitePath :: FilePath
     }
     deriving (Show, Eq)
 
@@ -29,6 +30,7 @@ parseOptions =
         <*> optNetworkId
         <*> optScriptYaml
         <*> optHTTPServerPort
+        <*> optSqlitePath
   where
     optSocketPath =
         File
@@ -61,6 +63,13 @@ parseOptions =
                 <> metavar "HTTP_SERVER_PORT"
                 <> help "Port of the http server"
                 <> value 8080
+            )
+    optSqlitePath =
+        strOption
+            ( long "sqlite-path"
+                <> metavar "SQLITE_PATH"
+                <> help "Path to sqlite database"
+                <> value "psr.db"
             )
 
 psrOpts :: ParserInfo Options

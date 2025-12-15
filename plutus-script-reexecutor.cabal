@@ -52,10 +52,12 @@ library
     PSR.Chain
     PSR.ConfigMap
     PSR.ContextBuilder
+    PSR.Storage.Interface
+    PSR.Storage.SQLite
+    PSR.Streaming
     PSR.HTTP
     PSR.HTTP.API
     PSR.HTTP.Server
-    PSR.Streaming
 
   build-depends:
     , aeson
@@ -82,6 +84,9 @@ library
     , servant-server
     , streamly
     , streamly-core
+    , sqlite-simple
+    , prometheus-client
+    , prometheus-metrics-ghc
     , text
     , time
     , transformers
@@ -109,7 +114,7 @@ executable plutus-script-reexecutor
     , warp
     , yaml
 
--- TODO: Move this into a seperate package
+-- TODO: Move this into a separate package
 executable dev-local
   import:         lang
   main-is:        Main.hs

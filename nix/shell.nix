@@ -9,6 +9,7 @@ let
     "ghc966".stylish-haskell          = project.projectVariants.ghc966.tool "stylish-haskell" "latest";
     "ghc966".fourmolu                 = project.projectVariants.ghc966.tool "fourmolu" "latest";
     "ghc966".hlint                    = project.projectVariants.ghc966.tool "hlint" "latest";
+    "ghc966".ghcid                    = project.projectVariants.ghc966.tool "ghcid" "latest";
 
     "ghc984".cabal                    = project.projectVariants.ghc984.tool "cabal" "latest";
     "ghc984".cabal-fmt                = project.projectVariants.ghc984.tool "cabal-fmt" "latest";
@@ -82,6 +83,7 @@ let
     tools.cabal
     tools.hlint
     tools.cabal-fmt
+    tools.ghcid
 
     inputs.cardano-node.packages.${pkgs.system}.cardano-node
     inputs.cardano-node.packages.${pkgs.system}.cardano-testnet

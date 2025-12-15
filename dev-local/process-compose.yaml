@@ -19,3 +19,10 @@ processes:
     depends_on:
       cardano-testnet:
         condition: process_healthy
+
+  script-reexecutor:
+    command: "cabal run exec -- --socket devnet-env/socket/node1/sock --testnet 42 --script-yaml scripts.yaml"
+    depends_on:
+      cardano-testnet:
+        condition: process_healthy
+    disabled: true

@@ -5,12 +5,15 @@ module PSR.ContextBuilder (
     Context1 (..),
     Context2 (..),
     Context3 (..),
+    Context4 (..),
     mkContext0,
+    txFromContext,
     getMintPolicies,
     mkContext1,
     getInputScriptAddrs,
     mkContext2,
     mkContext3,
+    mkContext4,
 ) where
 
 --------------------------------------------------------------------------------
@@ -63,6 +66,9 @@ deriving instance Show Context0
 eraFromContext :: Context0 -> (forall era. C.ShelleyBasedEra era -> r) -> r
 eraFromContext (Context0{ctxShelleyBasedEra}) f = f ctxShelleyBasedEra
 
+txFromContext :: forall r. (forall era. C.ShelleyBasedEra era -> C.Tx era -> r) -> Context0 -> r
+txFromContext f (Context0{ctxShelleyBasedEra, ctxTransaction}) = f ctxShelleyBasedEra ctxTransaction
+
 -- NOTE: To build contexts other than Context0, we will need to query the node.
 
 data Context1 where
@@ -89,6 +95,13 @@ data Context3 where
         , ctxEvaluationContext :: Map C.ScriptHash EvaluationContext
         } ->
         Context3
+
+data Context4 where
+    Context4 ::
+        { context3 :: Context3
+        , ctxExecutionResults :: Map C.ScriptHash [(LogOutput, Either EvaluationError ExBudget)]
+        } ->
+        Context4
 
 -- NOTE: The final context should have everything required to run the
 -- transaction locally.
@@ -180,3 +193,23 @@ mkContext3 ConfigMap{..} ctx2@Context2{..} = do
     case res of
         Left err -> Nothing <$ putStrLn err
         Right (evalContexts, costs) -> pure $ Just $ Context3 ctx2 costs evalContexts
+
+executeScriptInContext :: Context1 -> (ScriptEvaluationParameters, ScriptForEvaluation) -> EvaluationContext -> [Data] -> (LogOutput, Either EvaluationError ExBudget)
+executeScriptInContext Context1{..} (ScriptEvaluationParameters{..}, scriptForEval) evalContext args =
+    let
+        res = evaluateScriptCounting sepLanguage sepProtocolVersion Verbose evalContext scriptForEval args
+     in
+        res
+
+mkContext4 :: ConfigMap -> Context3 -> Context4
+mkContext4 ConfigMap{..} ctx =
+    let
+        Context3{..} = ctx
+        Context2{..} = context2
+        executions = flip Map.mapMaybeWithKey ctxEvaluationContext $ \k evalCtx -> do
+            resolved <- Map.lookup k ctxRelevantScripts
+            scrParams <- rsScriptForEvaluation resolved
+            -- TODO: Generate [Data] for script arguments for each plutus version.
+            pure [executeScriptInContext context1 scrParams evalCtx []]
+     in
+        Context4 ctx executions

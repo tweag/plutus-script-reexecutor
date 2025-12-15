@@ -11,8 +11,8 @@ import PSR.Chain
 import PSR.ConfigMap qualified as CM
 import PSR.ContextBuilder
 import PSR.HTTP qualified as HTTP
-import PSR.Streaming
 import PSR.Storage.SQLite qualified as Storage
+import PSR.Streaming
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Stream.Prelude qualified as Stream
 import Text.Pretty.Simple
@@ -67,4 +67,10 @@ main = do
                         putStrLn "Found scripts:"
                         mapM_ pCompact scripts
                     )
+                & fmap (mkContext4 config)
+                & Stream.trace (pCompact . ctxExecutionResults)
+                & Stream.trace (txFromContext printTx . context0 . context1 . context2 . context3)
                 & Stream.fold Fold.drain
+
+printTx :: forall era. C.ShelleyBasedEra era -> C.Tx era -> IO ()
+printTx _era = pCompact

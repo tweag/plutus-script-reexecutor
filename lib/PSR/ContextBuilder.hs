@@ -1,16 +1,10 @@
 {-# LANGUAGE RankNTypes #-}
 
 module PSR.ContextBuilder (
-    Context0 (..),
-    Context1 (..),
-    Context2 (..),
-    Context3 (..),
-    mkContext0,
-    getMintPolicies,
-    mkContext1,
-    getInputScriptAddrs,
-    mkContext2,
-    mkContext3,
+    BlockContext (..),
+    TransactionContext (..),
+    mkBlockContext,
+    mkTransactionContext,
 ) where
 
 --------------------------------------------------------------------------------
@@ -45,79 +39,54 @@ import PlutusLedgerApi.V3.EvaluationContext qualified as V3
 
 -- Q: Is there a better way to represent this?
 
-data Context0 era where
-    Context0 ::
+-- Context1 is essentially acts like the global environment.
+data BlockContext era where
+    BlockContext ::
         { ctxPrevChainPoint :: C.ChainPoint
         , ctxShelleyBasedEra :: C.ShelleyBasedEra era
         , ctxTransactions :: [C.Tx era]
-        } ->
-        Context0 era
-
-deriving instance Show (Context0 era)
-
--- Context1 is essentially acts like the global environment.
-data Context1 era where
-    Context1 ::
-        { context0 :: Context0 era
         , ctxInputUtxoMap :: Map C.TxIn (C.TxOut C.CtxUTxO era)
         , -- NOTE: The protocol parameters (and hence the cost models) may change
           -- in a running node. It may be okay to poll this at the block boundary.
           ctxCostModels :: S.CostModels
         } ->
-        Context1 era
+        BlockContext era
 
-deriving instance Show (Context1 era)
+deriving instance Show (BlockContext era)
+
+mkBlockContext ::
+    C.LocalNodeConnectInfo ->
+    C.ChainPoint ->
+    C.ShelleyBasedEra era ->
+    [C.Tx era] ->
+    IO (BlockContext era)
+mkBlockContext conn prevCp era txs = do
+    let query =
+            (,)
+                <$> utxoMapQuery era txs
+                <*> costModelsQuery era
+    -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
+    (umap, costs) <- runLocalStateQueryExpr conn prevCp query
+    pure $
+        BlockContext
+            { ctxPrevChainPoint = prevCp
+            , ctxShelleyBasedEra = era
+            , ctxTransactions = txs
+            , ctxInputUtxoMap = C.unUTxO umap
+            , ctxCostModels = costs
+            }
 
 --------------------------------------------------------------------------------
 -- Transaction Context
 --------------------------------------------------------------------------------
 
-data Context2 era where
-    Context2 ::
-        { context1 :: Context1 era
-        , ctxTransaction :: C.Tx era
+data TransactionContext era where
+    TransactionContext ::
+        { ctxTransaction :: C.Tx era
         , ctxRelevantScripts :: Map.Map C.ScriptHash ResolvedScript
-        } ->
-        Context2 era
-
-data Context3 era where
-    Context3 ::
-        { context2 :: Context2 era
         , ctxEvaluationContext :: Map C.ScriptHash EvaluationContext
         } ->
-        Context3 era
-
--- NOTE: The final context should have everything required to run the
--- transaction locally.
-
---------------------------------------------------------------------------------
--- Main
---------------------------------------------------------------------------------
-
-mkContext0 ::
-    C.ChainPoint -> C.ShelleyBasedEra era -> [C.Tx era] -> Context0 era
-mkContext0 cp era txs =
-    Context0
-        { ctxPrevChainPoint = cp
-        , ctxShelleyBasedEra = era
-        , ctxTransactions = txs
-        }
-
--- NOTE: We should add more capabilities to our default monad.
-mkContext1 :: C.LocalNodeConnectInfo -> Context0 era -> IO (Context1 era)
-mkContext1 conn c0@Context0{..} = do
-    let query =
-            (,)
-                <$> utxoMapQuery ctxShelleyBasedEra ctxTransactions
-                <*> costModelsQuery ctxShelleyBasedEra
-    -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
-    (umap, costs) <- runLocalStateQueryExpr conn ctxPrevChainPoint query
-    pure $
-        Context1
-            { context0 = c0
-            , ctxInputUtxoMap = C.unUTxO umap
-            , ctxCostModels = costs
-            }
+        TransactionContext era
 
 getMintPolicies :: C.Tx era -> Set C.ScriptHash
 getMintPolicies =
@@ -134,19 +103,22 @@ getInputScriptAddrs utxoMap tx =
     let utxoList = Map.elems $ Map.restrictKeys utxoMap $ getTxInSet tx
      in Set.fromList $ mapMaybe getTxOutScriptAddr utxoList
 
-mkContext2 ::
+getNonEmptyIntersection ::
     ConfigMap ->
-    Context1 era ->
+    BlockContext era ->
     C.Tx era ->
-    Maybe (Context2 era)
-mkContext2 ConfigMap{..} ctx1@Context1{..} tx = do
+    Maybe (Map.Map C.ScriptHash ResolvedScript)
+getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
     let interestingScripts =
             Map.restrictKeys cmScripts $
                 Set.union (getMintPolicies tx) (getInputScriptAddrs ctxInputUtxoMap tx)
     guard (not $ Map.null interestingScripts)
-    pure $ Context2 ctx1 tx interestingScripts
+    pure $ interestingScripts
 
-makeEvaluationContext :: S.CostModels -> PlutusLedgerLanguage -> C.ExceptT String IO EvaluationContext
+makeEvaluationContext ::
+    S.CostModels ->
+    PlutusLedgerLanguage ->
+    C.ExceptT String IO EvaluationContext
 makeEvaluationContext params lang = case lang of
     PlutusV1 -> run L.PlutusV1 V1.mkEvaluationContext
     PlutusV2 -> run L.PlutusV2 V2.mkEvaluationContext
@@ -156,16 +128,27 @@ makeEvaluationContext params lang = case lang of
         Just costs -> C.modifyError show . fmap fst . runWriterT $ f (L.getCostModelParams costs)
         Nothing -> C.throwError $ "Unknown cost model for lang: " ++ show lang
 
-mkContext3 :: Context2 era -> IO (Maybe (Context3 era))
-mkContext3 ctx2 = do
+getScriptEvaluationContext ::
+    BlockContext era ->
+    Map C.ScriptHash ResolvedScript ->
+    IO (Maybe (Map C.ScriptHash EvaluationContext))
+getScriptEvaluationContext BlockContext{..} relevantScripts = do
     let langs :: Map C.ScriptHash PlutusLedgerLanguage
-        langs = Map.mapMaybe (fmap (sepLanguage . fst) . rsScriptForEvaluation) ctxRelevantScripts
+        langs = Map.mapMaybe (fmap (sepLanguage . fst) . rsScriptForEvaluation) relevantScripts
     res <- C.runExceptT $ traverse (makeEvaluationContext ctxCostModels) langs
     case res of
         Left err -> Nothing <$ putStrLn err
         Right evalContexts -> do
             C.liftIO $ print (Map.keys evalContexts)
-            pure $ Just $ Context3 ctx2 evalContexts
-  where
-    Context2{..} = ctx2
-    Context1{..} = context1
+            pure $ Just $ evalContexts
+
+mkTransactionContext ::
+    ConfigMap -> BlockContext era -> C.Tx era -> IO (Maybe (TransactionContext era))
+mkTransactionContext cm bc tx = do
+    case getNonEmptyIntersection cm bc tx of
+        Nothing -> pure Nothing
+        Just nei -> do
+            msec <- getScriptEvaluationContext bc nei
+            pure $ case msec of
+                Nothing -> Nothing
+                Just sec -> Just $ TransactionContext tx nei sec

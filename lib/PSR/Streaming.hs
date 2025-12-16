@@ -174,19 +174,16 @@ streamBlocks CM.ConfigMap{..} points =
         & Stream.mapMaybe (\(a, b) -> (a,) <$> b)
 
 streamTransactionContext ::
-    CM.ConfigMap -> Context1 era -> Stream IO (Context3 era)
-streamTransactionContext cm ctx1@Context1{..} =
+    CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
+streamTransactionContext cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
-        & Stream.mapMaybe (mkContext2 cm ctx1)
-        & Stream.mapMaybeM mkContext3
+        & Stream.mapMaybeM (mkTransactionContext cm ctx1)
         & Stream.trace
-            ( \(Context3 (Context2 _ _ scripts) _) -> do
+            ( \TransactionContext{..} -> do
                 -- pCompact ctx
                 putStrLn "Found scripts:"
-                mapM_ pCompact scripts
+                mapM_ pCompact ctxRelevantScripts
             )
-  where
-    Context0{..} = context0
 
 --------------------------------------------------------------------------------
 -- Main
@@ -198,7 +195,6 @@ mainLoop cm@CM.ConfigMap{..} points =
         & Stream.fold (Fold.drainMapM (uncurry consumeBlock))
   where
     consumeBlock previousChainPt (Block era txList) = do
-        let ctx0 = mkContext0 previousChainPt era txList
-        ctx1 <- mkContext1 cmLocalNodeConn ctx0
+        ctx1 <- mkBlockContext cmLocalNodeConn previousChainPt era txList
         streamTransactionContext cm ctx1
             & Stream.fold Fold.drain

@@ -26,20 +26,19 @@ import Control.Monad (guard)
 import Control.Monad.Trans.Writer (WriterT (runWriterT))
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Lens.Micro
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..), ScriptEvaluationParameters (..))
-import PSR.Streaming
 import PlutusLedgerApi.Common
 import PlutusLedgerApi.V1.EvaluationContext qualified as V1
 import PlutusLedgerApi.V2.EvaluationContext qualified as V2
 import PlutusLedgerApi.V3.EvaluationContext qualified as V3
 
 --------------------------------------------------------------------------------
--- Types
+-- Block Context
 --------------------------------------------------------------------------------
 
 -- NOTE: Our decisions are made based on the context built. At different stages
@@ -49,46 +48,50 @@ import PlutusLedgerApi.V3.EvaluationContext qualified as V3
 -- Q: Is there a better way to represent this?
 
 -- Context0 is immediately derivable from the transactions.
-data Context0 where
+data Context0 era where
     Context0 ::
         { ctxPrevChainPoint :: C.ChainPoint
         , ctxShelleyBasedEra :: C.ShelleyBasedEra era
-        , ctxTransaction :: C.Tx era
-        , ctxMintValue :: C.TxMintValue C.ViewTx era
+        , ctxTransactions :: [C.Tx era]
         } ->
-        Context0
+        Context0 era
 
-deriving instance Show Context0
+deriving instance Show (Context0 era)
 
-eraFromContext :: Context0 -> (forall era. C.ShelleyBasedEra era -> r) -> r
+eraFromContext :: Context0 era -> (C.ShelleyBasedEra era -> r) -> r
 eraFromContext (Context0{ctxShelleyBasedEra}) f = f ctxShelleyBasedEra
 
 -- NOTE: To build contexts other than Context0, we will need to query the node.
 
-data Context1 where
+data Context1 era where
     Context1 ::
-        { context0 :: Context0
+        { context0 :: Context0 era
         , ctxInputUtxoMap :: Map C.TxIn (C.TxOut C.CtxUTxO era)
         } ->
-        Context1
+        Context1 era
 
-deriving instance Show Context1
+deriving instance Show (Context1 era)
 
-data Context2 where
+--------------------------------------------------------------------------------
+-- Transaction Context
+--------------------------------------------------------------------------------
+
+data Context2 era where
     Context2 ::
-        { context1 :: Context1
+        { context1 :: Context1 era
+        , ctxTransaction :: C.Tx era
         , ctxRelevantScripts :: Map.Map C.ScriptHash ResolvedScript
         } ->
-        Context2
+        Context2 era
 
-data Context3 where
+data Context3 era where
     Context3 ::
-        { context2 :: Context2
+        { context2 :: Context2 era
         , -- TODO: This should probably be state?
           ctxCostModels :: S.CostModels
         , ctxEvaluationContext :: Map C.ScriptHash EvaluationContext
         } ->
-        Context3
+        Context3 era
 
 -- NOTE: The final context should have everything required to run the
 -- transaction locally.
@@ -97,39 +100,50 @@ data Context3 where
 -- Main
 --------------------------------------------------------------------------------
 
-mkContext0 :: C.ChainPoint -> Transaction -> Context0
-mkContext0 cp (Transaction era tx) =
+mkContext0 ::
+    C.ChainPoint -> C.ShelleyBasedEra era -> [C.Tx era] -> Context0 era
+mkContext0 cp era txs =
     Context0
         { ctxPrevChainPoint = cp
         , ctxShelleyBasedEra = era
-        , ctxTransaction = tx
-        , ctxMintValue = C.txMintValue . C.getTxBodyContent . C.getTxBody $ tx
+        , ctxTransactions = txs
         }
 
-getMintPolicies :: Context0 -> Set C.ScriptHash
-getMintPolicies Context0{..} =
-    Set.map C.unPolicyId $ getPolicySet $ C.txMintValueToValue ctxMintValue
-
-mkContext1 :: C.LocalNodeConnectInfo -> Context0 -> IO Context1
+mkContext1 :: C.LocalNodeConnectInfo -> Context0 era -> IO (Context1 era)
 mkContext1 conn c0@Context0{..} = do
-    umap <- queryInputUtxoMap conn ctxPrevChainPoint ctxTransaction
+    umap <- queryInputUtxoMap conn ctxPrevChainPoint ctxShelleyBasedEra ctxTransactions
     pure $
         Context1
             { context0 = c0
             , ctxInputUtxoMap = umap
             }
 
-getInputScriptAddrs :: Context1 -> Set C.ScriptHash
-getInputScriptAddrs Context1{..} =
-    Set.fromList $ catMaybes $ getTxOutScriptAddr <$> Map.elems ctxInputUtxoMap
+getMintPolicies :: C.Tx era -> Set C.ScriptHash
+getMintPolicies =
+    Set.mapMonotonic C.unPolicyId
+        . getPolicySet
+        . C.txMintValueToValue
+        . C.txMintValue
+        . C.getTxBodyContent
+        . C.getTxBody
 
-mkContext2 :: ConfigMap -> Context1 -> Maybe Context2
-mkContext2 ConfigMap{..} ctx1@Context1{..} = do
+getInputScriptAddrs ::
+    Map C.TxIn (C.TxOut C.CtxUTxO era) -> C.Tx era -> Set C.ScriptHash
+getInputScriptAddrs utxoMap tx =
+    let utxoList = Map.elems $ Map.restrictKeys utxoMap $ getTxInSet tx
+     in Set.fromList $ mapMaybe getTxOutScriptAddr utxoList
+
+mkContext2 ::
+    ConfigMap ->
+    Context1 era ->
+    C.Tx era ->
+    Maybe (Context2 era)
+mkContext2 ConfigMap{..} ctx1@Context1{..} tx = do
     let interestingScripts =
             Map.restrictKeys cmScripts $
-                Set.union (getMintPolicies context0) (getInputScriptAddrs ctx1)
+                Set.union (getMintPolicies tx) (getInputScriptAddrs ctxInputUtxoMap tx)
     guard (not $ Map.null interestingScripts)
-    pure (Context2 ctx1 interestingScripts)
+    pure $ Context2 ctx1 tx interestingScripts
 
 makeEvaluationContext :: S.CostModels -> PlutusLedgerLanguage -> C.ExceptT String IO EvaluationContext
 makeEvaluationContext params lang = case lang of
@@ -159,7 +173,7 @@ costModelsForEra cmLocalNodeConn cp era = do
             C.ShelleyBasedEraConway -> pure $ res ^. ppCostModelsL
             _ -> C.throwError $ "Unsupported era? " ++ show era
 
-mkContext3 :: ConfigMap -> Context2 -> IO (Maybe Context3)
+mkContext3 :: ConfigMap -> Context2 era -> IO (Maybe (Context3 era))
 mkContext3 ConfigMap{..} ctx2@Context2{..} = do
     res <- C.runExceptT $ do
         let

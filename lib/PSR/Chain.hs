@@ -1,10 +1,11 @@
 module PSR.Chain (
-    getEventTransactions,
+    getEventBlock,
     queryInputUtxoMap,
     getTxOutValue,
     mkLocalNodeConnectInfo,
     getPolicySet,
     getTxOutScriptAddr,
+    getTxInSet,
 )
 where
 
@@ -20,7 +21,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import PSR.Streaming
+import PSR.Types
 
 --------------------------------------------------------------------------------
 -- Queries
@@ -33,18 +34,21 @@ data QueryException
     deriving stock (Show)
     deriving anyclass (Exception)
 
+getTxInSet :: C.Tx era -> Set C.TxIn
+getTxInSet tx =
+    let txBody = C.getTxBody tx
+        txBodyContent = C.getTxBodyContent txBody
+     in Set.fromList $ map fst $ C.txIns txBodyContent
+
 queryInputUtxoMap ::
     forall era.
     C.LocalNodeConnectInfo ->
     C.ChainPoint ->
-    C.Tx era ->
+    C.ShelleyBasedEra era ->
+    [C.Tx era] ->
     IO (Map C.TxIn (C.TxOut C.CtxUTxO era))
-queryInputUtxoMap conn cp tx = do
-    let txBody = C.getTxBody tx
-        txBodyContent = C.getTxBodyContent txBody
-        era = case txBody of
-            C.ShelleyTxBody era' _ _ _ _ _ -> era'
-    let txInsSet = Set.fromList $ map fst $ C.txIns txBodyContent
+queryInputUtxoMap conn cp era txList = do
+    let txInsSet = Set.unions $ getTxInSet <$> txList
         query = C.queryUtxo era $ C.QueryUTxOByTxIn txInsSet
     res <- C.executeLocalStateQueryExpr conn (C.SpecificPoint cp) query
     case res of
@@ -73,18 +77,14 @@ mkLocalNodeConnectInfo networkId socketPath =
 -- Projections
 --------------------------------------------------------------------------------
 
-getTransactions :: C.BlockInMode -> [Transaction]
-getTransactions bim =
-    case bim of
-        C.BlockInMode C.ByronEra _ -> []
-        C.BlockInMode era blk -> case runIdentity (C.requireShelleyBasedEra era) of
-            Just era' -> Transaction era' <$> C.getBlockTxs blk
-            Nothing -> error "Impossible!"
+getBlock :: C.BlockInMode -> Maybe Block
+getBlock (C.BlockInMode cera blk) = do
+    era <- runIdentity (C.requireShelleyBasedEra cera)
+    pure $ Block era $ C.getBlockTxs blk
 
-getEventTransactions :: ChainSyncEvent -> (C.ChainPoint, [Transaction])
-getEventTransactions (RollForward bim cp) =
-    (C.chainTipToChainPoint cp, getTransactions bim)
-getEventTransactions (RollBackward cp _) = (cp, [])
+getEventBlock :: ChainSyncEvent -> (C.ChainPoint, Maybe Block)
+getEventBlock (RollForward bim cp) = (C.chainTipToChainPoint cp, getBlock bim)
+getEventBlock (RollBackward cp _) = (cp, Nothing)
 
 getTxOutValue :: C.TxOut ctx era -> C.Value
 getTxOutValue (C.TxOut _ val _ _) = C.txOutValueToValue val

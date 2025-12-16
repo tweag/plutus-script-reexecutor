@@ -1,9 +1,10 @@
 module PSR.Streaming (
-    ChainSyncEvent (..),
-    Transaction (..),
     streamChainSyncEvents,
     isByron,
-    trackPreviousChainPoint,
+    unshiftFst,
+    streamBlocks,
+    streamTransactionContext,
+    mainLoop,
 ) where
 
 --------------------------------------------------------------------------------
@@ -12,18 +13,24 @@ module PSR.Streaming (
 
 import Cardano.Api qualified as C
 import Control.Concurrent (forkIO)
-import Control.Exception (Exception, throw)
+import Control.Exception (throw)
 import Control.Monad (void)
-import GHC.Generics (Generic)
+import Data.Function ((&))
 import Ouroboros.Network.Protocol.ChainSync.Client (
     ClientStIdle (..),
     ClientStIntersect (..),
     ClientStNext (..),
  )
+import PSR.Chain
+import PSR.ConfigMap qualified as CM
+import PSR.ContextBuilder
+import PSR.Types
+import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Scanl (Scanl)
 import Streamly.Data.Scanl.Prelude qualified as Scanl
 import Streamly.Data.Stream.Prelude (Stream)
 import Streamly.Data.Stream.Prelude qualified as Stream
+import Text.Pretty.Simple
 
 --------------------------------------------------------------------------------
 -- Notes
@@ -49,42 +56,34 @@ unfoldEach for nesting streams while supporting fusion.
 -}
 
 --------------------------------------------------------------------------------
--- Types
+-- Debugging Utils
 --------------------------------------------------------------------------------
 
-data ChainSyncEvent
-    = RollForward C.BlockInMode C.ChainTip
-    | RollBackward C.ChainPoint C.ChainTip
-    deriving stock (Show, Generic)
+compactPrintOpts :: OutputOptions
+compactPrintOpts =
+    defaultOutputOptionsDarkBg
+        { outputOptionsCompact = True
+        , outputOptionsCompactParens = True
+        , outputOptionsIndentAmount = 2
+        , outputOptionsStringStyle = Literal
+        }
 
-isByron :: ChainSyncEvent -> Bool
-isByron (RollForward (C.BlockInMode C.ByronEra _) _) = True
-isByron _ = False
-
-data ChainSyncEventException = NoIntersectionFound
-    deriving stock (Show)
-    deriving anyclass (Exception)
-
-data Transaction where
-    Transaction :: C.ShelleyBasedEra era -> C.Tx era -> Transaction
-
-deriving instance Show Transaction
+pCompact :: (Show a) => a -> IO ()
+pCompact = pPrintOpt CheckColorTty compactPrintOpts
 
 --------------------------------------------------------------------------------
 -- Streaming Utils
 --------------------------------------------------------------------------------
 
 -- Pairs the current set of transactions with the previous chainpoint
-trackPreviousChainPoint ::
-    (Monad m) =>
-    Scanl m (C.ChainPoint, [Transaction]) (C.ChainPoint, [Transaction])
-trackPreviousChainPoint =
+unshiftFst :: (Monad m) => Scanl m (a, b) (a, b)
+unshiftFst =
     snd <$> Scanl.mkScanl step initial
   where
     step (prev, _) (new, txs) = (new, (prev, txs))
     initial =
-        ( error "trackPreviousChainPoint: Use postscanl"
-        , error "trackPreviousChainPoint: Use postscanl"
+        ( error "unshiftFst: Use postscanl"
+        , error "unshiftFst: Use postscanl"
         )
 
 --------------------------------------------------------------------------------
@@ -151,6 +150,10 @@ subscribeToChainSyncEvents conn points callback =
                         sendRequestNext
                 }
 
+--------------------------------------------------------------------------------
+-- Streams
+--------------------------------------------------------------------------------
+
 streamChainSyncEvents ::
     -- | Connection Info
     C.LocalNodeConnectInfo ->
@@ -159,3 +162,43 @@ streamChainSyncEvents ::
     Stream IO ChainSyncEvent
 streamChainSyncEvents conn points =
     Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
+
+streamBlocks :: CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
+streamBlocks CM.ConfigMap{..} points =
+    streamChainSyncEvents cmLocalNodeConn points
+        & Stream.filter (not . isByron)
+        & fmap getEventBlock
+        & Stream.postscanl unshiftFst
+        -- TODO: Can we filter here to remove any block that doesn't reference
+        -- any scripts we care about?
+        & Stream.mapMaybe (\(a, b) -> (a,) <$> b)
+
+streamTransactionContext ::
+    CM.ConfigMap -> Context1 era -> Stream IO (Context3 era)
+streamTransactionContext cm ctx1@Context1{..} =
+    Stream.fromList ctxTransactions
+        & Stream.mapMaybe (mkContext2 cm ctx1)
+        & Stream.mapMaybeM (mkContext3 cm)
+        & Stream.trace
+            ( \(Context3 (Context2 _ _ scripts) _ _) -> do
+                -- pCompact ctx
+                putStrLn "Found scripts:"
+                mapM_ pCompact scripts
+            )
+  where
+    Context0{..} = context0
+
+--------------------------------------------------------------------------------
+-- Main
+--------------------------------------------------------------------------------
+
+mainLoop :: CM.ConfigMap -> [C.ChainPoint] -> IO ()
+mainLoop cm@CM.ConfigMap{..} points =
+    streamBlocks cm points
+        & Stream.fold (Fold.drainMapM (uncurry consumeBlock))
+  where
+    consumeBlock previousChainPt (Block era txList) = do
+        let ctx0 = mkContext0 previousChainPt era txList
+        ctx1 <- mkContext1 cmLocalNodeConn ctx0
+        streamTransactionContext cm ctx1
+            & Stream.fold Fold.drain

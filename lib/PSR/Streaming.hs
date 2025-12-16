@@ -11,6 +11,8 @@ module PSR.Streaming (
 -- Imports
 --------------------------------------------------------------------------------
 
+import PSR.Storage.Interface (Storage(..)) 
+
 import Cardano.Api qualified as C
 import Control.Concurrent (forkIO)
 import Control.Exception (throw)
@@ -154,6 +156,13 @@ subscribeToChainSyncEvents conn points callback =
 -- Streams
 --------------------------------------------------------------------------------
 
+traceChainSyncEvent :: Storage -> ChainSyncEvent -> IO ()
+traceChainSyncEvent s = \case
+    RollForward (C.BlockInMode _ blk) _ -> do
+        let header = C.getBlockHeader blk 
+        s.addSelectionEvent header
+    _ -> pure ()
+
 streamChainSyncEvents ::
     -- | Connection Info
     C.LocalNodeConnectInfo ->
@@ -163,10 +172,11 @@ streamChainSyncEvents ::
 streamChainSyncEvents conn points =
     Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
 
-streamBlocks :: CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
-streamBlocks CM.ConfigMap{..} points =
+streamBlocks :: Storage -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
+streamBlocks storage CM.ConfigMap{..} points =
     streamChainSyncEvents cmLocalNodeConn points
         & Stream.filter (not . isByron)
+        & Stream.trace (traceChainSyncEvent storage)
         & fmap getEventBlock
         & Stream.postscanl unshiftFst
         -- TODO: Can we filter here to remove any block that doesn't reference
@@ -189,12 +199,13 @@ streamTransactionContext cm ctx1@BlockContext{..} =
 -- Main
 --------------------------------------------------------------------------------
 
-mainLoop :: CM.ConfigMap -> [C.ChainPoint] -> IO ()
-mainLoop cm@CM.ConfigMap{..} points =
-    streamBlocks cm points
+mainLoop :: Storage -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
+mainLoop storage cm@CM.ConfigMap{..} points =
+    streamBlocks storage cm points
         & Stream.fold (Fold.drainMapM (uncurry consumeBlock))
   where
     consumeBlock previousChainPt (Block era txList) = do
         ctx1 <- mkBlockContext cmLocalNodeConn previousChainPt era txList
         streamTransactionContext cm ctx1
             & Stream.fold Fold.drain
+

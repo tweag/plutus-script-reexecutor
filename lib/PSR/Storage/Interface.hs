@@ -7,6 +7,7 @@ module PSR.Storage.Interface (
 ) where
 
 import Data.Text (Text)
+import Data.Time.Clock (UTCTime)
 
 import PSR.HTTP.API (EventFilterParams (..), EventType (..))
 
@@ -17,8 +18,10 @@ import Cardano.Api (
  )
 
 data Event = Event
-    { eventType :: EventType
-    }
+  { eventType :: EventType
+  , blockHeader :: BlockHeader
+  , createdAt :: UTCTime
+  }
 
 data ExecutionEventPayload = ExecutionEventPayload
     { blockHeader :: BlockHeader

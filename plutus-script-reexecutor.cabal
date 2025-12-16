@@ -21,6 +21,7 @@ common lang
     DeriveLift
     DeriveTraversable
     DerivingStrategies
+    DuplicateRecordFields
     ExplicitForAll
     FlexibleContexts
     FlexibleInstances
@@ -33,6 +34,7 @@ common lang
     NamedFieldPuns
     NumericUnderscores
     OverloadedStrings
+    OverloadedRecordDot
     PolyKinds
     QuasiQuotes
     RecordWildCards

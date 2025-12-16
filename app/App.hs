@@ -30,4 +30,4 @@ main = do
     Storage.withSqliteStorage sqlitePath $ \storage ->
         Async.withAsync (HTTP.run storage httpServerPort) $ \serverAsync -> do
             Async.link serverAsync
-            Streaming.mainLoop config points
+            Streaming.mainLoop storage config points

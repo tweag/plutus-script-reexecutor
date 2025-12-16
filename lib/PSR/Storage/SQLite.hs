@@ -5,123 +5,221 @@ module PSR.Storage.SQLite where
 import PSR.Storage.Interface
 
 import Cardano.Api (
-    BlockHeader (..),
-    BlockNo (..),
-    Hash (..),
-    ScriptHash (..),
-    SlotNo (..),
-    TxId,
-    serialiseToRawBytes,
+  BlockHeader (..),
+  BlockNo (..),
+  Hash (..),
+  ScriptHash (..),
+  SlotNo (..),
+  TxId,
+  deserialiseFromRawBytes,
+  serialiseToRawBytes,
  )
+import Cardano.Api qualified as C
 
+import Data.Functor ((<&>))
+import Data.Maybe (catMaybes, fromMaybe)
+import Data.Text qualified as T
+import Data.Time.Clock (UTCTime)
 import Database.SQLite.Simple
+import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.ToField
 
 withSqliteStorage :: FilePath -> (Storage -> IO ()) -> IO ()
 withSqliteStorage dbPath act =
-    withConnection dbPath $ \sqliteConn -> do
-        storage <- mkStorage sqliteConn
-        act storage
+  withConnection dbPath $ \sqliteConn -> do
+    storage <- mkStorage sqliteConn
+    act storage
 
 mkStorage :: Connection -> IO Storage
 mkStorage conn = do
-    initSchema conn
+  initSchema conn
+  pure $ Storage{..}
+ where
+  getOrCreateBlockId :: BlockHeader -> IO Integer
+  getOrCreateBlockId (BlockHeader slotNo hash blockNo) = do
+    execute
+      conn
+      "INSERT OR IGNORE INTO block (block_no, slot_no, hash) values (?, ?, ?)"
+      (blockNo, slotNo, hash)
 
-    let
-        addExecutionEvent :: ExecutionEventPayload -> IO ()
-        addExecutionEvent ExecutionEventPayload{..} = do
-            let (BlockHeader slotNo hash blockNo) = blockHeader
+    rows <- query conn "SELECT block_id from block where block_no = ? and slot_no = ? and hash = ?" (blockNo, slotNo, hash)
+    case rows of
+      [Only blockId :: Only Integer] -> return blockId
+      _ -> error "Can't find the inserted block"
 
-            withTransaction conn $ do
-                execute
-                    conn
-                    "INSERT OR IGNORE INTO block (block_no, slot_no, hash) values (?, ?, ?)"
-                    (blockNo, slotNo, hash)
+  addExecutionEvent :: ExecutionEventPayload -> IO ()
+  addExecutionEvent ExecutionEventPayload{..} = do
+    withTransaction conn $ do
+      blockId <- getOrCreateBlockId blockHeader
+      execute
+        conn
+        "INSERT INTO execution_event (block_id, transaction_hash, script_hash, name, trace) values (?, ?, ?, ?, ?)"
+        (blockId, transactionHash, scriptHash, scriptName, trace)
 
-                execute
-                    conn
-                    "INSERT INTO execution_event (block_no, transaction_hash, script_hash, name, trace) values (?, ?, ?, ?, ?)"
-                    (blockNo, transactionHash, scriptHash, scriptName, trace)
+  addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
+  addCancellationEvent blockHeader scriptHash =
+    withTransaction conn $ do
+      blockId <- getOrCreateBlockId blockHeader
+      execute
+        conn
+        "INSERT INTO cancellation_event (block_id, script_hash) values (?, ?)"
+        (blockId, scriptHash)
 
-    let
-        addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
-        addCancellationEvent (BlockHeader slotNo hash blockNo) scriptHash =
-            withTransaction conn $ do
-                execute
-                    conn
-                    "INSERT OR IGNORE INTO block (block_no, slot_no, hash) values (?, ?, ?)"
-                    (blockNo, slotNo, hash)
+  addSelectionEvent :: BlockHeader -> IO ()
+  addSelectionEvent blockHeader =
+    withTransaction conn $ do
+      blockId <- getOrCreateBlockId blockHeader
+      execute
+        conn
+        "INSERT INTO selection_event (block_id) values (?)"
+        (Only blockId)
 
-                execute
-                    conn
-                    "INSERT INTO cancellation_event (block_no, script_hash) values (?, ?)"
-                    (blockNo, scriptHash)
+  getEvents :: EventFilterParams -> IO [Event]
+  getEvents EventFilterParams{..} =
+    withTransaction conn $ do
+      let
+        -- see `docs/specification.md` for default values
+        limitParameter =
+          let limit = fromMaybe 50 _eventFilterParam_limit
+           in min limit 1000
+        offsetParameter = fromMaybe 0 _eventFilterParam_offset
 
-    let
-        addSelectionEvent :: BlockHeader -> IO ()
-        addSelectionEvent (BlockHeader slotNo hash blockNo) =
-            withTransaction conn $ do
-                execute
-                    conn
-                    "INSERT OR IGNORE INTO block (block_no, slot_no, hash) values (?, ?, ?)"
-                    (blockNo, slotNo, hash)
+        mkNamedParam q n v = (q, n := v)
+        paramsWithQueries =
+          catMaybes
+            [ fmap
+                ( mkNamedParam
+                    " (e.name = :name_or_hash or e.script_hash = :name_or_hash or c.script_hash = :name_or_hash) "
+                    ":name_or_hash"
+                    . toField
+                )
+                _eventFilterParam_name_or_script_hash
+            , fmap
+                (mkNamedParam " b.slot_no >= :slot_begin " ":slot_begin" . toField)
+                _eventFilterParam_slot_begin
+            , fmap
+                (mkNamedParam " b.slot_no <= :slot_end " ":slot_end" . toField)
+                _eventFilterParam_slot_end
+            , fmap
+                ( mkNamedParam
+                    " (e.created_at >= :time_begin or c.created_at >= :time_begin or s.created_at >= :time_begin) "
+                    ":time_begin"
+                    . toField
+                )
+                _eventFilterParam_time_begin
+            , fmap
+                ( mkNamedParam
+                    " (e.created_at <= :time_end or c.created_at <= :time_end or s.created_at <= :time_end) "
+                    ":time_end"
+                    . toField
+                )
+                _eventFilterParam_time_end
+            ]
 
-                execute
-                    conn
-                    "INSERT INTO selection_event (block_no) values (?)"
-                    (Only blockNo)
+        paramsQuery :: Query
+        paramsQuery =
+          Query $
+            let q = T.intercalate " and " $ map fst paramsWithQueries
+             in if T.null q then "" else " where " <> q
 
-    let
-        getEvents :: EventFilterParams -> IO [Event]
-        getEvents EventFilterParams{} =
-            withTransaction conn $ do
-                --        r <- query conn
-                --          "select (b.block_no, b.slot_no, b.hash,  ) \
-                --          \ from block b \
-                --          \ left join execution_event e on e.block_no = b.block_no \
-                --          \ left join cancellation_event c on c.block_no = b.block_no \
-                --          \ left join selection_event s on s.block_no = b.block_no"
-                --          (Only 3)
+        eventsQuery :: Query
+        eventsQuery =
+          "select b.block_no, b.slot_no, b.hash, \
+          \ CASE WHEN e.block_id THEN 'execution' WHEN c.block_id THEN 'cancellation' WHEN s.block_id THEN 'selection' END, \
+          \ COALESCE(e.created_at, c.created_at, s.created_at) \
+          \ from block b \
+          \ left join execution_event e on e.block_id = b.block_id \
+          \ left join cancellation_event c on c.block_id = b.block_id \
+          \ left join selection_event s on s.block_id = b.block_id "
+            <> paramsQuery
+            <> " order by b.block_id DESC \
+               \ limit :limit offset :offset"
 
-                pure []
+        parameters = map snd paramsWithQueries <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
-    pure $ Storage{..}
+      rows :: [(BlockNo, SlotNo, Hash BlockHeader, EventType, UTCTime)] <-
+        queryNamed conn eventsQuery parameters
+
+      pure $
+        rows <&> \case
+          (blockNo, slotNo, hash, eventType, createdAt) ->
+            let
+              blockHeader = BlockHeader slotNo hash blockNo
+             in
+              Event{..}
 
 initSchema :: Connection -> IO ()
 initSchema conn = withTransaction conn $ do
-    execute_
-        conn
-        "CREATE TABLE IF NOT EXISTS block( \
-        \ block_no UNSIGNED BIGINT NOT NULL PRIMARY KEY, \
-        \ slot_no UNSIGNED BIGINT NOT NULL UNIQUE, \
-        \ hash BLOB NOT NULL UNIQUE)"
+  execute_
+    conn
+    "CREATE TABLE IF NOT EXISTS block( \
+    \ block_id INTEGER PRIMARY KEY, \
+    \ block_no UNSIGNED BIGINT NOT NULL, \
+    \ slot_no UNSIGNED BIGINT NOT NULL, \
+    \ hash BLOB NOT NULL, \
+    \ UNIQUE(block_no, slot_no, hash) )"
 
-    execute_
-        conn
-        "CREATE TABLE IF NOT EXISTS execution_event(\
-        \ block_no UNSIGNED BIGINT NOT NULL REFERENCES block(block_no), \
-        \ transaction_hash BLOB NOT NULL, \
-        \ script_hash BLOB NOT NULL, \
-        \ name TEXT, \
-        \ trace TEXT)"
+  execute_
+    conn
+    "CREATE TABLE IF NOT EXISTS execution_event(\
+    \ block_id INTEGER NOT NULL REFERENCES block(block_id), \
+    \ transaction_hash BLOB NOT NULL, \
+    \ script_hash BLOB NOT NULL, \
+    \ name TEXT, \
+    \ trace TEXT, \
+    \ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP )"
 
-    execute_ conn "CREATE TABLE IF NOT EXISTS cancellation_event (block_number UNSIGNED BIGINT NOT NULL REFERENCES block(block_no), script_hash BLOB NOT NULL)"
+  execute_
+    conn
+    "CREATE TABLE IF NOT EXISTS cancellation_event(\
+    \ block_id INTEGER NOT NULL REFERENCES block(block_id), \
+    \ script_hash BLOB NOT NULL, \
+    \ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP )"
 
-    execute_ conn "CREATE TABLE IF NOT EXISTS selection_event (block_no UNSIGNED BIGINT NOT NULL REFERENCES block(block_no))"
+  execute_
+    conn
+    "CREATE TABLE IF NOT EXISTS selection_event(\
+    \ block_id INTEGER NOT NULL REFERENCES block(block_id), \
+    \ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP )"
 
 -- instances --
 
 instance ToField BlockNo where
-    toField (BlockNo blockNo) = toField blockNo
+  toField (BlockNo blockNo) = toField blockNo
+
+instance FromField BlockNo where
+  fromField f = do
+    blockNo <- fromField f
+    return $ BlockNo blockNo
 
 instance ToField SlotNo where
-    toField (SlotNo slotNo) = toField slotNo
+  toField (SlotNo slotNo) = toField slotNo
+
+instance FromField SlotNo where
+  fromField f = do
+    slotNo <- fromField f
+    return $ SlotNo slotNo
 
 instance ToField (Hash BlockHeader) where
-    toField hash = toField $ serialiseToRawBytes hash
+  toField hash = toField $ serialiseToRawBytes hash
+
+instance FromField (Hash BlockHeader) where
+  fromField f = do
+    bs <- fromField f
+    case deserialiseFromRawBytes (C.proxyToAsType C.Proxy) bs of
+      Right v -> pure v
+      Left err -> returnError ConversionFailed f (show err)
 
 instance ToField ScriptHash where
-    toField hash = toField $ serialiseToRawBytes hash
+  toField hash = toField $ serialiseToRawBytes hash
 
 instance ToField TxId where
-    toField txId = toField $ serialiseToRawBytes txId
+  toField txId = toField $ serialiseToRawBytes txId
+
+instance FromField EventType where
+  fromField f = do
+    fromField f >>= \case
+      ("execution" :: String) -> pure Execution
+      "cancellation" -> pure Cancellation
+      "selection" -> pure Selection
+      _ -> returnError ConversionFailed f "Failed to parse event type"

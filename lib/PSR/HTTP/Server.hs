@@ -2,10 +2,10 @@ module PSR.HTTP.Server (
     run,
 ) where
 
-import PSR.HTTP.API
-import PSR.Storage.Interface (Storage (..))
+import PSR.HTTP.API as API
+import PSR.Storage.Interface (Storage(..), Event(..))
 
-import Control.Applicative ((<|>))
+import Data.Functor ((<&>))
 import Control.Monad.IO.Class (liftIO)
 import Data.Default (def)
 import Network.Wai.Handler.Warp qualified as Warp
@@ -33,11 +33,11 @@ server Storage{..} = siteH
             }
 
     eventsHandler filterParams' mName = do
-        -- The capture parameter `name` has a higher priority over the query param
-        let nameFilterParameter = maybe (_filterQueryParam_name filterParams') Just mName
-        let filterParams = filterParams'{_filterQueryParam_name = nameFilterParameter}
-        _events <- liftIO $ getEvents filterParams
-        pure []
+        -- The capture parameter `name_or_script_hash` has a higher priority over the query param
+        let nameOrScriptHashFilterParameter = maybe (_eventFilterParam_name_or_script_hash filterParams') Just mName
+        let filterParams = filterParams' {_eventFilterParam_name_or_script_hash = nameOrScriptHashFilterParameter}
+        events <- liftIO $ getEvents filterParams
+        pure $ events <&> \e -> API.Event e.eventType e.blockHeader e.createdAt
 
 run :: Storage -> Warp.Port -> IO ()
 run storage port = do

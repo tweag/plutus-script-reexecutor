@@ -1,4 +1,6 @@
 {- HLINT ignore "Use newtype instead of data" -}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module PSR.HTTP.API (
     ServerAPI,
     EventType (..),
@@ -6,9 +8,12 @@ module PSR.HTTP.API (
     SiteRoutes (..),
     EventRoutes (..),
     siteApi,
+    Event(..),
 ) where
 
-import Data.Aeson (FromJSON, ToJSON)
+import Cardano.Api (BlockHeader(..))
+
+import Data.Aeson (ToJSON(..), object, (.=))
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
@@ -16,12 +21,20 @@ import Servant
 import Servant.QueryParam.Record (RecordParam)
 import Servant.QueryParam.TypeLevel (DropPrefix, Eval, Exp)
 
-data Event = Event
-    { content :: Text
-    }
-    deriving (Generic, Show)
+instance ToJSON BlockHeader where
+  toJSON (BlockHeader slotNo hash blockNo) = object
+    [ "slot" .= toJSON slotNo
+    , "block_hash" .= toJSON hash
+    , "block_no" .= toJSON blockNo
+    ]
 
-instance FromJSON Event
+data Event = Event
+    { eventType :: EventType
+    , blockHeader :: BlockHeader
+    , created_at :: UTCTime
+    }
+    deriving (Generic)
+
 instance ToJSON Event
 
 data DropPrefixExp :: sym -> Exp sym
@@ -33,6 +46,8 @@ data EventType
     | Cancellation
     deriving (Generic)
 
+instance ToJSON EventType
+
 instance FromHttpApiData EventType where
     parseQueryParam = \case
         "execution" -> pure Execution
@@ -41,14 +56,14 @@ instance FromHttpApiData EventType where
         _ -> Left "Unknown event type"
 
 data EventFilterParams = EventFilterParams
-    { _filterQueryParam_type :: Maybe EventType
-    , _filterQueryParam_time_begin :: Maybe UTCTime
-    , _filterQueryParam_time_end :: Maybe UTCTime
-    , _filterQueryParam_slot_begin :: Maybe Integer
-    , _filterQueryParam_slot_end :: Maybe Integer
-    , _filterQueryParam_limit :: Maybe Integer
-    , _filterQueryParam_offset :: Maybe Integer
-    , _filterQueryParam_name :: Maybe Text
+    { _eventFilterParam_type :: Maybe EventType
+    , _eventFilterParam_time_begin :: Maybe UTCTime
+    , _eventFilterParam_time_end :: Maybe UTCTime
+    , _eventFilterParam_slot_begin :: Maybe Integer
+    , _eventFilterParam_slot_end :: Maybe Integer
+    , _eventFilterParam_limit :: Maybe Integer
+    , _eventFilterParam_offset :: Maybe Integer
+    , _eventFilterParam_name_or_script_hash :: Maybe Text
     }
     deriving (Generic)
 
@@ -56,7 +71,7 @@ type EventFilterParams' = RecordParam DropPrefixExp EventFilterParams
 
 data EventRoutes route = EventRoutes
     { allEvents :: route :- EventFilterParams' :> Get '[JSON] [Event]
-    , namedEvents :: route :- EventFilterParams' :> Capture "script_hash_or_name" Text :> Get '[JSON] [Event]
+    , namedEvents :: route :- EventFilterParams' :> Capture "name_or_script_hash" Text :> Get '[JSON] [Event]
     }
     deriving (Generic)
 

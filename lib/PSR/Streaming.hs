@@ -199,9 +199,6 @@ mainLoop cm@CM.ConfigMap{..} points =
   where
     consumeBlock previousChainPt (Block era txList) = do
         let ctx0 = mkContext0 previousChainPt era txList
-        mctx1 <- mkContext1 cmLocalNodeConn ctx0
-        case mctx1 of
-            Nothing -> error "Unable to query the protocol parameters"
-            Just ctx1 ->
-                streamTransactionContext cm ctx1
-                    & Stream.fold Fold.drain
+        ctx1 <- mkContext1 cmLocalNodeConn ctx0
+        streamTransactionContext cm ctx1
+            & Stream.fold Fold.drain

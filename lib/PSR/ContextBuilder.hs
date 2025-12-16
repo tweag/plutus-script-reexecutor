@@ -19,7 +19,6 @@ module PSR.ContextBuilder (
 
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
-import Cardano.Ledger.Alonzo.PParams (ppCostModelsL)
 import Cardano.Ledger.Api.Scripts qualified as S
 import Cardano.Ledger.Plutus qualified as L
 import Control.Monad (guard)
@@ -29,7 +28,6 @@ import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Lens.Micro
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..), ScriptEvaluationParameters (..))
 import PlutusLedgerApi.Common
@@ -56,9 +54,6 @@ data Context0 era where
         Context0 era
 
 deriving instance Show (Context0 era)
-
-eraFromContext :: Context0 era -> (C.ShelleyBasedEra era -> r) -> r
-eraFromContext (Context0{ctxShelleyBasedEra}) f = f ctxShelleyBasedEra
 
 -- Context1 is essentially acts like the global environment.
 data Context1 era where
@@ -109,24 +104,20 @@ mkContext0 cp era txs =
         }
 
 -- NOTE: We should add more capabilities to our default monad.
-mkContext1 :: C.LocalNodeConnectInfo -> Context0 era -> IO (Maybe (Context1 era))
+mkContext1 :: C.LocalNodeConnectInfo -> Context0 era -> IO (Context1 era)
 mkContext1 conn c0@Context0{..} = do
-    -- TODO: Combine both the queries
-    umap <- queryInputUtxoMap conn ctxPrevChainPoint ctxShelleyBasedEra ctxTransactions
-    res <- C.runExceptT costModelForEra
-    case res of
-        Left err -> Nothing <$ putStrLn err
-        Right costs ->
-            pure . Just $
-                Context1
-                    { context0 = c0
-                    , ctxInputUtxoMap = umap
-                    , ctxCostModels = costs
-                    }
-  where
-    costModelForEra :: C.ExceptT String IO S.CostModels
-    costModelForEra =
-        eraFromContext c0 (costModelsForEra conn ctxPrevChainPoint)
+    let query =
+            (,)
+                <$> utxoMapQuery ctxShelleyBasedEra ctxTransactions
+                <*> costModelsQuery ctxShelleyBasedEra
+    -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
+    (umap, costs) <- runLocalStateQueryExpr conn ctxPrevChainPoint query
+    pure $
+        Context1
+            { context0 = c0
+            , ctxInputUtxoMap = C.unUTxO umap
+            , ctxCostModels = costs
+            }
 
 getMintPolicies :: C.Tx era -> Set C.ScriptHash
 getMintPolicies =
@@ -164,24 +155,6 @@ makeEvaluationContext params lang = case lang of
     run lng f = case Map.lookup lng (L.costModelsValid params) of
         Just costs -> C.modifyError show . fmap fst . runWriterT $ f (L.getCostModelParams costs)
         Nothing -> C.throwError $ "Unknown cost model for lang: " ++ show lang
-
-costModelsForEra :: C.LocalNodeConnectInfo -> C.ChainPoint -> C.ShelleyBasedEra era -> C.ExceptT String IO S.CostModels
-costModelsForEra cmLocalNodeConn cp era = do
-    let q = C.queryProtocolParameters era
-    r <-
-        C.liftIO $
-            C.executeLocalStateQueryExpr
-                cmLocalNodeConn
-                (C.SpecificPoint cp)
-                q
-    case r of
-        Left err -> C.throwError $ show err
-        Right (Left err) -> C.throwError $ show err
-        Right (Right (Left err)) -> C.throwError $ show err
-        Right (Right (Right res)) -> case era of
-            C.ShelleyBasedEraAlonzo -> pure $ res ^. ppCostModelsL
-            C.ShelleyBasedEraConway -> pure $ res ^. ppCostModelsL
-            _ -> C.throwError $ "Unsupported era? " ++ show era
 
 mkContext3 :: Context2 era -> IO (Maybe (Context3 era))
 mkContext3 ctx2 = do

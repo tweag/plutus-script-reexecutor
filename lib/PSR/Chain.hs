@@ -1,11 +1,13 @@
 module PSR.Chain (
     getEventBlock,
-    queryInputUtxoMap,
+    utxoMapQuery,
+    costModelsQuery,
     getTxOutValue,
     mkLocalNodeConnectInfo,
     getPolicySet,
     getTxOutScriptAddr,
     getTxInSet,
+    runLocalStateQueryExpr,
 )
 where
 
@@ -15,12 +17,14 @@ where
 
 import Cardano.Api (SocketPath)
 import Cardano.Api qualified as C
+import Cardano.Ledger.Alonzo.PParams (ppCostModelsL)
+import Cardano.Ledger.Api.Scripts qualified as S
 import Control.Exception (Exception, throw)
 import Data.Functor.Identity (Identity (..))
-import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Lens.Micro
 import PSR.Types
 
 --------------------------------------------------------------------------------
@@ -40,22 +44,47 @@ getTxInSet tx =
         txBodyContent = C.getTxBodyContent txBody
      in Set.fromList $ map fst $ C.txIns txBodyContent
 
-queryInputUtxoMap ::
-    forall era.
-    C.LocalNodeConnectInfo ->
-    C.ChainPoint ->
+utxoMapQuery ::
     C.ShelleyBasedEra era ->
     [C.Tx era] ->
-    IO (Map C.TxIn (C.TxOut C.CtxUTxO era))
-queryInputUtxoMap conn cp era txList = do
+    C.LocalStateQueryExpr block point C.QueryInMode r IO (C.UTxO era)
+utxoMapQuery era txList = do
     let txInsSet = Set.unions $ getTxInSet <$> txList
-        query = C.queryUtxo era $ C.QueryUTxOByTxIn txInsSet
+    res <- C.queryUtxo era $ C.QueryUTxOByTxIn txInsSet
+    case res of
+        Left err -> throw $ QeUnsupportedNtcVersionError err
+        Right (Left err) -> throw $ QeEraMismatch err
+        Right (Right val) -> pure val
+
+data CostModelsQueryException
+    = CMQEUnsupportedEra String
+    deriving stock (Show)
+    deriving anyclass (Exception)
+
+costModelsQuery ::
+    C.ShelleyBasedEra era ->
+    C.LocalStateQueryExpr block point C.QueryInMode r IO S.CostModels
+costModelsQuery era = do
+    res <- C.queryProtocolParameters era
+    case res of
+        Left err -> throw $ QeUnsupportedNtcVersionError err
+        Right (Left err) -> throw $ QeEraMismatch err
+        Right (Right val) ->
+            case era of
+                C.ShelleyBasedEraAlonzo -> pure $ val ^. ppCostModelsL
+                C.ShelleyBasedEraConway -> pure $ val ^. ppCostModelsL
+                _ -> throw $ CMQEUnsupportedEra $ show era
+
+runLocalStateQueryExpr ::
+    C.LocalNodeConnectInfo ->
+    C.ChainPoint ->
+    C.LocalStateQueryExpr C.BlockInMode C.ChainPoint C.QueryInMode () IO a ->
+    IO a
+runLocalStateQueryExpr conn cp query = do
     res <- C.executeLocalStateQueryExpr conn (C.SpecificPoint cp) query
     case res of
         Left err -> throw $ QeAcquiringFailure err
-        Right (Left err) -> throw $ QeUnsupportedNtcVersionError err
-        Right (Right (Left err)) -> throw $ QeEraMismatch err
-        Right (Right (Right val)) -> pure $ C.unUTxO val
+        Right val -> pure val
 
 --------------------------------------------------------------------------------
 -- Utils

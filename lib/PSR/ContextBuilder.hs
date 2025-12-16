@@ -47,7 +47,6 @@ import PlutusLedgerApi.V3.EvaluationContext qualified as V3
 
 -- Q: Is there a better way to represent this?
 
--- Context0 is immediately derivable from the transactions.
 data Context0 era where
     Context0 ::
         { ctxPrevChainPoint :: C.ChainPoint
@@ -61,12 +60,14 @@ deriving instance Show (Context0 era)
 eraFromContext :: Context0 era -> (C.ShelleyBasedEra era -> r) -> r
 eraFromContext (Context0{ctxShelleyBasedEra}) f = f ctxShelleyBasedEra
 
--- NOTE: To build contexts other than Context0, we will need to query the node.
-
+-- Context1 is essentially acts like the global environment.
 data Context1 era where
     Context1 ::
         { context0 :: Context0 era
         , ctxInputUtxoMap :: Map C.TxIn (C.TxOut C.CtxUTxO era)
+        , -- NOTE: The protocol parameters (and hence the cost models) may change
+          -- in a running node. It may be okay to poll this at the block boundary.
+          ctxCostModels :: S.CostModels
         } ->
         Context1 era
 
@@ -87,8 +88,6 @@ data Context2 era where
 data Context3 era where
     Context3 ::
         { context2 :: Context2 era
-        , -- TODO: This should probably be state?
-          ctxCostModels :: S.CostModels
         , ctxEvaluationContext :: Map C.ScriptHash EvaluationContext
         } ->
         Context3 era
@@ -109,14 +108,25 @@ mkContext0 cp era txs =
         , ctxTransactions = txs
         }
 
-mkContext1 :: C.LocalNodeConnectInfo -> Context0 era -> IO (Context1 era)
+-- NOTE: We should add more capabilities to our default monad.
+mkContext1 :: C.LocalNodeConnectInfo -> Context0 era -> IO (Maybe (Context1 era))
 mkContext1 conn c0@Context0{..} = do
+    -- TODO: Combine both the queries
     umap <- queryInputUtxoMap conn ctxPrevChainPoint ctxShelleyBasedEra ctxTransactions
-    pure $
-        Context1
-            { context0 = c0
-            , ctxInputUtxoMap = umap
-            }
+    res <- C.runExceptT costModelForEra
+    case res of
+        Left err -> Nothing <$ putStrLn err
+        Right costs ->
+            pure . Just $
+                Context1
+                    { context0 = c0
+                    , ctxInputUtxoMap = umap
+                    , ctxCostModels = costs
+                    }
+  where
+    costModelForEra :: C.ExceptT String IO S.CostModels
+    costModelForEra =
+        eraFromContext c0 (costModelsForEra conn ctxPrevChainPoint)
 
 getMintPolicies :: C.Tx era -> Set C.ScriptHash
 getMintPolicies =
@@ -173,24 +183,16 @@ costModelsForEra cmLocalNodeConn cp era = do
             C.ShelleyBasedEraConway -> pure $ res ^. ppCostModelsL
             _ -> C.throwError $ "Unsupported era? " ++ show era
 
-mkContext3 :: ConfigMap -> Context2 era -> IO (Maybe (Context3 era))
-mkContext3 ConfigMap{..} ctx2@Context2{..} = do
-    res <- C.runExceptT $ do
-        let
-            ctx0 = context0 context1
-            costModelForEra :: C.ExceptT String IO S.CostModels
-            costModelForEra =
-                eraFromContext
-                    ctx0
-                    (costModelsForEra cmLocalNodeConn (ctxPrevChainPoint ctx0))
-
-        costs <- costModelForEra
-        let langs :: Map C.ScriptHash PlutusLedgerLanguage
-            langs = Map.mapMaybe (fmap (sepLanguage . fst) . rsScriptForEvaluation) ctxRelevantScripts
-        res <- traverse (makeEvaluationContext costs) langs
-        C.liftIO $ print (Map.keys res)
-        pure (res, costs)
-
+mkContext3 :: Context2 era -> IO (Maybe (Context3 era))
+mkContext3 ctx2 = do
+    let langs :: Map C.ScriptHash PlutusLedgerLanguage
+        langs = Map.mapMaybe (fmap (sepLanguage . fst) . rsScriptForEvaluation) ctxRelevantScripts
+    res <- C.runExceptT $ traverse (makeEvaluationContext ctxCostModels) langs
     case res of
         Left err -> Nothing <$ putStrLn err
-        Right (evalContexts, costs) -> pure $ Just $ Context3 ctx2 costs evalContexts
+        Right evalContexts -> do
+            C.liftIO $ print (Map.keys evalContexts)
+            pure $ Just $ Context3 ctx2 evalContexts
+  where
+    Context2{..} = ctx2
+    Context1{..} = context1

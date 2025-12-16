@@ -178,9 +178,9 @@ streamTransactionContext ::
 streamTransactionContext cm ctx1@Context1{..} =
     Stream.fromList ctxTransactions
         & Stream.mapMaybe (mkContext2 cm ctx1)
-        & Stream.mapMaybeM (mkContext3 cm)
+        & Stream.mapMaybeM mkContext3
         & Stream.trace
-            ( \(Context3 (Context2 _ _ scripts) _ _) -> do
+            ( \(Context3 (Context2 _ _ scripts) _) -> do
                 -- pCompact ctx
                 putStrLn "Found scripts:"
                 mapM_ pCompact scripts
@@ -199,6 +199,9 @@ mainLoop cm@CM.ConfigMap{..} points =
   where
     consumeBlock previousChainPt (Block era txList) = do
         let ctx0 = mkContext0 previousChainPt era txList
-        ctx1 <- mkContext1 cmLocalNodeConn ctx0
-        streamTransactionContext cm ctx1
-            & Stream.fold Fold.drain
+        mctx1 <- mkContext1 cmLocalNodeConn ctx0
+        case mctx1 of
+            Nothing -> error "Unable to query the protocol parameters"
+            Just ctx1 ->
+                streamTransactionContext cm ctx1
+                    & Stream.fold Fold.drain

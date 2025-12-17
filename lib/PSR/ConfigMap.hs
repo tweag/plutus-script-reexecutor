@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module PSR.ConfigMap where
 
@@ -13,7 +14,7 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Traversable (for)
 import Data.Yaml (decodeFileEither, withObject)
 import Data.Yaml.Aeson (Parser, Value (Object), object, (.:), (.:?), (.=))
-import PSR.Chain (mkLocalNodeConnectInfo)
+import Lens.Micro.Platform (makeLenses)
 import PlutusLedgerApi.Common (
     MajorProtocolVersion,
     PlutusLedgerLanguage (..),
@@ -82,15 +83,6 @@ instance ToJSON ScriptSource where
     toJSON (CBORHex cb) = toJSON cb
     toJSON (FromFile path) = object ["path" .= path]
 
-{- | The resolved configuration map, with any scripts referenced by
-  path loaded from disk.
--}
-data ConfigMap = ConfigMap
-    { cmStart :: Maybe C.ChainPoint
-    , cmScripts :: Map ScriptHash ResolvedScript
-    , cmLocalNodeConn :: LocalNodeConnectInfo
-    }
-
 -- | Information relating to a loaded script
 data ResolvedScript = ResolvedScript
     { rsScriptHash :: ScriptHash
@@ -110,6 +102,17 @@ data ScriptEvaluationParameters where
         } ->
         ScriptEvaluationParameters
     deriving (Show, Eq)
+
+{- | The resolved configuration map, with any scripts referenced by
+  path loaded from disk.
+-}
+data ConfigMap = ConfigMap
+    { _cmStart :: Maybe C.ChainPoint
+    , _cmScripts :: Map ScriptHash ResolvedScript
+    , _cmLocalNodeConn :: LocalNodeConnectInfo
+    }
+
+makeLenses ''ConfigMap
 
 {- | Convert a Text containing hex encoded script into a (possible invalid)
 'SerialisedScript'
@@ -165,6 +168,22 @@ readScriptFile ScriptDetails{..} = do
             , rsScriptForEvaluation
             }
 
+--------------------------------------------------------------------------------
+-- Utils
+--------------------------------------------------------------------------------
+
+mkLocalNodeConnectInfo :: C.NetworkId -> SocketPath -> C.LocalNodeConnectInfo
+mkLocalNodeConnectInfo networkId socketPath =
+    C.LocalNodeConnectInfo
+        { C.localConsensusModeParams =
+            -- This a parameter needed only for the Byron era.
+            -- Since the Byron era is over and the parameter has never
+            -- changed it is ok to hardcode this.
+            C.CardanoModeParams (C.EpochSlots 21600)
+        , C.localNodeNetworkId = networkId
+        , C.localNodeSocketPath = socketPath
+        }
+
 {- | Parse the config from a given Yaml file on disk
 readConfigMap :: FilePath -> IO (Either String ConfigMap)
 -}
@@ -174,7 +193,7 @@ readConfigMap scriptYaml networkId socketPath = runExceptT $ do
     scripts' <- mapM readScriptFile cmfScripts
     pure
         ConfigMap
-            { cmStart = cmfStart
-            , cmScripts = Map.fromList [(rsScriptHash x, x) | x <- scripts']
-            , cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
+            { _cmStart = cmfStart
+            , _cmScripts = Map.fromList [(rsScriptHash x, x) | x <- scripts']
+            , _cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
             }

@@ -3,7 +3,6 @@ module PSR.Chain (
     utxoMapQuery,
     costModelsQuery,
     getTxOutValue,
-    mkLocalNodeConnectInfo,
     getPolicySet,
     getTxOutScriptAddr,
     getTxInSet,
@@ -15,7 +14,6 @@ where
 -- Imports
 --------------------------------------------------------------------------------
 
-import Cardano.Api (SocketPath)
 import Cardano.Api qualified as C
 import Cardano.Ledger.Alonzo.PParams (ppCostModelsL)
 import Cardano.Ledger.Api.Scripts qualified as S
@@ -85,22 +83,6 @@ runLocalStateQueryExpr conn cp query = do
     case res of
         Left err -> throw $ QeAcquiringFailure err
         Right val -> pure val
-
---------------------------------------------------------------------------------
--- Utils
---------------------------------------------------------------------------------
-
-mkLocalNodeConnectInfo :: C.NetworkId -> SocketPath -> C.LocalNodeConnectInfo
-mkLocalNodeConnectInfo networkId socketPath =
-    C.LocalNodeConnectInfo
-        { C.localConsensusModeParams =
-            -- This a parameter needed only for the Byron era.
-            -- Since the Byron era is over and the parameter has never
-            -- changed it is ok to hardcode this.
-            C.CardanoModeParams (C.EpochSlots 21600)
-        , C.localNodeNetworkId = networkId
-        , C.localNodeSocketPath = socketPath
-        }
 
 --------------------------------------------------------------------------------
 -- Projections

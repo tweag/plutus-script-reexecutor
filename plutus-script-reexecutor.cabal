@@ -71,8 +71,11 @@ library
     , cardano-slotting
     , containers
     , data-default
+    , log-base
     , memory
     , microlens
+    , microlens-platform
+    , mtl
     , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols
@@ -90,7 +93,9 @@ library
     , text
     , time
     , transformers
+    , unliftio-core
     , wai
+    , wai-log
     , wai-middleware-prometheus
     , warp
     , yaml
@@ -106,6 +111,7 @@ executable plutus-script-reexecutor
     , bytestring
     , cardano-api
     , containers
+    , log-base
     , optparse-applicative
     , plutus-script-reexecutor
     , pretty-simple

@@ -38,7 +38,7 @@ main = do
                     , leMaxLogLevel = LogTrace
                     }
         Storage.withSqliteStorage sqlitePath $ \storage ->
-            Async.withAsync (HTTP.run storage httpServerPort) $ \serverAsync -> do
+            Async.withAsync (HTTP.run loggerEnv storage httpServerPort) $ \serverAsync -> do
                 Async.link serverAsync
 
                 let appConf = AppConfig loggerEnv config storage

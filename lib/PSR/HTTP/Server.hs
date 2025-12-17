@@ -5,10 +5,12 @@ module PSR.HTTP.Server (
 import PSR.HTTP.API
 import PSR.Storage.Interface (Storage (..))
 
-import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader (ReaderT (runReaderT))
 import Data.Default (def)
+import Log (LogT (unLogT), LoggerEnv (leComponent))
 import Network.Wai.Handler.Warp qualified as Warp
+import Network.Wai.Log (mkLogMiddleware)
 import Network.Wai.Middleware.Prometheus (prometheus)
 import Prometheus (register)
 import Prometheus.Metric.GHC (ghcMetrics)
@@ -39,7 +41,8 @@ server Storage{..} = siteH
         _events <- liftIO $ getEvents filterParams
         pure []
 
-run :: Storage -> Warp.Port -> IO ()
-run storage port = do
+run :: LoggerEnv -> Storage -> Warp.Port -> IO ()
+run logEnv storage port = do
     _ <- register ghcMetrics
-    Warp.run port (prometheus def $ serve siteApi (server storage))
+    logMiddleware' <- flip runReaderT logEnv{leComponent = "PSR-http"} $ unLogT mkLogMiddleware
+    Warp.run port (logMiddleware' $ \_id -> prometheus def $ serve siteApi (server storage))

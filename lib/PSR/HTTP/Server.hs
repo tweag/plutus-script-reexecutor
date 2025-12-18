@@ -34,7 +34,7 @@ server Storage{..} = siteH
 
     eventsHandler filterParams' mName = do
         -- The capture parameter `name` has a higher priority over the query param
-        let nameFilterParameter = mName <|> _filterQueryParam_name filterParams'
+        let nameFilterParameter = maybe (_filterQueryParam_name filterParams') Just mName
         let filterParams = filterParams'{_filterQueryParam_name = nameFilterParameter}
         _events <- liftIO $ getEvents filterParams
         pure []

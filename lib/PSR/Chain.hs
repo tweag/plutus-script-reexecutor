@@ -1,7 +1,9 @@
 module PSR.Chain (
     getEventBlock,
+    sysStartQuery,
+    eraHistoryQuery,
     utxoMapQuery,
-    costModelsQuery,
+    pParamsQuery,
     getTxOutValue,
     mkLocalNodeConnectInfo,
     getPolicySet,
@@ -17,14 +19,12 @@ where
 
 import Cardano.Api (SocketPath)
 import Cardano.Api qualified as C
-import Cardano.Ledger.Alonzo.PParams (ppCostModelsL)
-import Cardano.Ledger.Api.Scripts qualified as S
+import Cardano.Api.Ledger qualified as L
 import Control.Exception (Exception, throw)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Lens.Micro
 import PSR.Types
 
 --------------------------------------------------------------------------------
@@ -56,24 +56,29 @@ utxoMapQuery era txList = do
         Right (Left err) -> throw $ QeEraMismatch err
         Right (Right val) -> pure val
 
-data CostModelsQueryException
-    = CMQEUnsupportedEra String
-    deriving stock (Show)
-    deriving anyclass (Exception)
-
-costModelsQuery ::
+pParamsQuery ::
     C.ShelleyBasedEra era ->
-    C.LocalStateQueryExpr block point C.QueryInMode r IO S.CostModels
-costModelsQuery era = do
+    C.LocalStateQueryExpr block point C.QueryInMode r IO (L.PParams (C.ShelleyLedgerEra era))
+pParamsQuery era = do
     res <- C.queryProtocolParameters era
     case res of
         Left err -> throw $ QeUnsupportedNtcVersionError err
         Right (Left err) -> throw $ QeEraMismatch err
-        Right (Right val) ->
-            case era of
-                C.ShelleyBasedEraAlonzo -> pure $ val ^. ppCostModelsL
-                C.ShelleyBasedEraConway -> pure $ val ^. ppCostModelsL
-                _ -> throw $ CMQEUnsupportedEra $ show era
+        Right (Right val) -> pure val
+
+eraHistoryQuery :: C.LocalStateQueryExpr block point C.QueryInMode r IO C.EraHistory
+eraHistoryQuery = do
+    res <- C.queryEraHistory
+    case res of
+        Left err -> throw $ QeUnsupportedNtcVersionError err
+        Right val -> pure val
+
+sysStartQuery :: C.LocalStateQueryExpr block point C.QueryInMode r IO C.SystemStart
+sysStartQuery = do
+    res <- C.querySystemStart
+    case res of
+        Left err -> throw $ QeUnsupportedNtcVersionError err
+        Right val -> pure val
 
 runLocalStateQueryExpr ::
     C.LocalNodeConnectInfo ->

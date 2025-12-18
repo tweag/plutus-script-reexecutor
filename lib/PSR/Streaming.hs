@@ -11,7 +11,7 @@ module PSR.Streaming (
 -- Imports
 --------------------------------------------------------------------------------
 
-import PSR.Events.Interface (Events(..)) 
+import PSR.Events.Interface (Events(..))
 
 import Cardano.Api qualified as C
 import Control.Concurrent (forkIO)
@@ -159,7 +159,7 @@ subscribeToChainSyncEvents conn points callback =
 traceChainSyncEvent :: Events -> ChainSyncEvent -> IO ()
 traceChainSyncEvent events = \case
     RollForward (C.BlockInMode _ blk) _ -> do
-        let header = C.getBlockHeader blk 
+        let header = C.getBlockHeader blk
         events.addSelectionEvent header
     _ -> pure ()
 
@@ -172,6 +172,7 @@ streamChainSyncEvents ::
 streamChainSyncEvents conn points =
     Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
 
+-- TODO: Filter out non-alanzo based blocks
 streamBlocks :: Events -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
 streamBlocks events CM.ConfigMap{..} points =
     streamChainSyncEvents cmLocalNodeConn points
@@ -208,4 +209,3 @@ mainLoop events cm@CM.ConfigMap{..} points =
         ctx1 <- mkBlockContext cmLocalNodeConn previousChainPt era txList
         streamTransactionContext cm ctx1
             & Stream.fold Fold.drain
-

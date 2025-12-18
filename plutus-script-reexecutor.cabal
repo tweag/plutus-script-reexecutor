@@ -65,6 +65,7 @@ library
     , bytestring
     , cardano-api
     , cardano-ledger-alonzo
+    , cardano-ledger-conway
     , cardano-ledger-api
     , cardano-ledger-core
     , cardano-slotting

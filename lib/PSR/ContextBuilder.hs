@@ -17,8 +17,13 @@ module PSR.ContextBuilder (
 -- Imports
 --------------------------------------------------------------------------------
 
+import Debug.Trace
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
+import Cardano.Ledger.Api qualified as L
+import Cardano.Ledger.Conway.Tx qualified as L
+import Cardano.Ledger.Alonzo.Core qualified as L
+import Cardano.Ledger.Alonzo.Tx qualified as L
 import Cardano.Ledger.Alonzo.PParams (ppCostModelsL)
 import Cardano.Ledger.Api.Scripts qualified as S
 import Cardano.Ledger.Plutus qualified as L
@@ -112,6 +117,23 @@ getMintPolicies Context0{..} =
 
 mkContext1 :: C.LocalNodeConnectInfo -> Context0 -> IO Context1
 mkContext1 conn c0@Context0{..} = do
+    
+    _ <- case ctxTransaction of
+      -- NOTE: convert the era to the script's only eras
+      C.ShelleyTx (C.ShelleyBasedEraConway) tx -> do
+            let evalResults = L.evalTxExUnitsWithLogs (L.emptyPParams) tx undefined undefined undefined
+            putStrLn "hello"
+            pure undefined
+      C.ShelleyTx (C.ShelleyBasedEraAlonzo) tx -> do
+            let evalResults = L.evalTxExUnitsWithLogs (L.emptyPParams) tx undefined undefined undefined
+            putStrLn "hello"
+            pure undefined
+      C.ShelleyTx (C.ShelleyBasedEraBabbage) tx -> do
+            let evalResults = L.evalTxExUnitsWithLogs (L.emptyPParams) tx undefined undefined undefined
+            putStrLn "hello"
+            pure undefined
+      _ -> pure undefined
+      
     umap <- queryInputUtxoMap conn ctxPrevChainPoint ctxTransaction
     pure $
         Context1

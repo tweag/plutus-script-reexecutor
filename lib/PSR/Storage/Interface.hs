@@ -1,38 +1,36 @@
-module PSR.Storage.Interface
-  ( Event(..)
-  , ExecutionEventPayload(..)
-  , EventType(..)
-  , Storage(..)
-  , FilterQueryParams(..)
-  ) where
+module PSR.Storage.Interface (
+    Event (..),
+    ExecutionEventPayload (..),
+    EventType (..),
+    Storage (..),
+    EventFilterParams (..),
+) where
 
 import Data.Text (Text)
 
-import PSR.HTTP.API (FilterQueryParams(..), EventType(..))
+import PSR.HTTP.API (EventFilterParams (..), EventType (..))
 
 import Cardano.Api (
-  BlockHeader,
-  ScriptHash,
-  TxId,
+    BlockHeader,
+    ScriptHash,
+    TxId,
  )
 
 data Event = Event
-  { eventType :: EventType
-  }
+    { eventType :: EventType
+    }
 
 data ExecutionEventPayload = ExecutionEventPayload
-  { blockHeader :: BlockHeader
-  , transactionHash :: TxId 
-  , scriptHash :: ScriptHash
-  , scriptName :: Maybe Text
-  , trace :: Text 
-  }
+    { blockHeader :: BlockHeader
+    , transactionHash :: TxId
+    , scriptHash :: ScriptHash
+    , scriptName :: Maybe Text
+    , trace :: Text
+    }
 
 data Storage = Storage
-  { addExecutionEvent :: ExecutionEventPayload -> IO ()
-  , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
-  , addSelectionEvent :: BlockHeader -> IO ()
-  , getEvents :: FilterQueryParams -> IO [Event] 
-  }
-
-
+    { addExecutionEvent :: ExecutionEventPayload -> IO ()
+    , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
+    , addSelectionEvent :: BlockHeader -> IO ()
+    , getEvents :: EventFilterParams -> IO [Event]
+    }

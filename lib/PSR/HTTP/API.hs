@@ -2,7 +2,7 @@
 module PSR.HTTP.API (
     ServerAPI,
     EventType (..),
-    FilterQueryParams (..),
+    EventFilterParams (..),
     SiteRoutes (..),
     EventRoutes (..),
     siteApi,
@@ -40,7 +40,7 @@ instance FromHttpApiData EventType where
         "cancellation" -> pure Cancellation
         _ -> Left "Unknown event type"
 
-data FilterQueryParams = FilterQueryParams
+data EventFilterParams = EventFilterParams
     { _filterQueryParam_type :: Maybe EventType
     , _filterQueryParam_time_begin :: Maybe UTCTime
     , _filterQueryParam_time_end :: Maybe UTCTime
@@ -52,11 +52,11 @@ data FilterQueryParams = FilterQueryParams
     }
     deriving (Generic)
 
-type EventFilterParams = RecordParam DropPrefixExp FilterQueryParams
+type EventFilterParams' = RecordParam DropPrefixExp EventFilterParams
 
 data EventRoutes route = EventRoutes
-    { allEvents :: route :- EventFilterParams :> Get '[JSON] [Event]
-    , namedEvents :: route :- EventFilterParams :> Capture "script_hash_or_name" Text :> Get '[JSON] [Event]
+    { allEvents :: route :- EventFilterParams' :> Get '[JSON] [Event]
+    , namedEvents :: route :- EventFilterParams' :> Capture "script_hash_or_name" Text :> Get '[JSON] [Event]
     }
     deriving (Generic)
 

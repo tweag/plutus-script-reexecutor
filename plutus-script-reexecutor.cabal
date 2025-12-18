@@ -56,6 +56,8 @@ library
     PSR.ContextBuilder
     PSR.Events
     PSR.Events.Interface
+    PSR.Evaluation.Api
+    PSR.Evaluation.Ledger
     PSR.HTTP
     PSR.HTTP.API
     PSR.HTTP.Server
@@ -70,6 +72,7 @@ library
     , base                         >=4.9 && <5
     , bytestring
     , cardano-api
+    , cardano-data
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-core

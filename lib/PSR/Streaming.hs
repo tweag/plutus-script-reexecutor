@@ -31,7 +31,6 @@ import Streamly.Data.Scanl (Scanl)
 import Streamly.Data.Scanl.Prelude qualified as Scanl
 import Streamly.Data.Stream.Prelude (Stream)
 import Streamly.Data.Stream.Prelude qualified as Stream
-import Text.Pretty.Simple
 
 --------------------------------------------------------------------------------
 -- Notes
@@ -55,22 +54,6 @@ not perform well with deep nesting as fusion breaks. Alternatively, we can use
 unfoldEach for nesting streams while supporting fusion.
 
 -}
-
---------------------------------------------------------------------------------
--- Debugging Utils
---------------------------------------------------------------------------------
-
-compactPrintOpts :: OutputOptions
-compactPrintOpts =
-    defaultOutputOptionsDarkBg
-        { outputOptionsCompact = True
-        , outputOptionsCompactParens = True
-        , outputOptionsIndentAmount = 2
-        , outputOptionsStringStyle = Literal
-        }
-
-pCompact :: (Show a) => a -> IO ()
-pCompact = pPrintOpt CheckColorTty compactPrintOpts
 
 --------------------------------------------------------------------------------
 -- Streaming Utils

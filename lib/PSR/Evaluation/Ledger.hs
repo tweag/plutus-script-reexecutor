@@ -27,7 +27,11 @@ import Data.Map.Strict qualified as Map
 import Data.MapExtras (fromElems)
 import Data.Text (Text)
 import Lens.Micro
+import PSR.Types (ScriptSubtitutionInfo)
 import PlutusLedgerApi.Common qualified as P
+
+import Cardano.Api qualified as C
+import Cardano.Ledger.Conway.Scripts qualified as Conway
 
 --------------------------------------------------------------------------------
 -- Evaluators
@@ -44,6 +48,7 @@ evalTxExUnitsWithLogs ::
     , EraPlutusContext era
     , ScriptsNeeded era ~ AlonzoScriptsNeeded era
     ) =>
+    ScriptSubtitutionInfo era ->
     PParams era ->
     -- | The transaction.
     Tx era ->
@@ -62,7 +67,7 @@ evalTxExUnitsWithLogs ::
     debugging.
     -}
     RedeemerReportWithLogs era
-evalTxExUnitsWithLogs pp tx utxo epochInfo systemStart = Map.mapWithKey findAndCount rdmrs
+evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey findAndCount rdmrs
   where
     keyedByPurpose (plutusPurpose, _) = hoistPlutusPurpose toAsIx plutusPurpose
     purposeToScriptHash = fromElems keyedByPurpose scriptsNeeded
@@ -96,9 +101,16 @@ evalTxExUnitsWithLogs pp tx utxo epochInfo systemStart = Map.mapWithKey findAndC
                         )
                     )
                     purposeToScriptHash
-        plutusScript <-
-            note (MissingScript pointer ptrToPlutusScriptNoContext) $
-                lookupPlutusScript plutusScriptHash scriptsProvided
+        let lookupPlutusScriptSubstituting psh =
+                case Map.lookup (C.ScriptHash plutusScriptHash) ssi of
+                    Nothing ->
+                        note (MissingScript pointer ptrToPlutusScriptNoContext) $
+                            lookupPlutusScript psh scriptsProvided
+                    Just val ->
+                        case val of
+                            Conway.PlutusScript s -> pure s
+                            _ -> error "Conway.NativeScript is not supported."
+        plutusScript <- lookupPlutusScriptSubstituting plutusScriptHash
         let lang = plutusScriptLanguage plutusScript
         costModel <-
             note (NoCostModelInLedgerState lang) $ Map.lookup lang costModels

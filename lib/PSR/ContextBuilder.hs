@@ -15,6 +15,7 @@ module PSR.ContextBuilder (
 
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
+import Cardano.Ledger.Alonzo qualified as Alonzo
 import Control.Monad (guard)
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -25,6 +26,7 @@ import Data.Text (Text)
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
+import PSR.Types (pCompact)
 
 --------------------------------------------------------------------------------
 -- Block Context
@@ -121,21 +123,47 @@ getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
 mkTransactionContext ::
     ConfigMap -> BlockContext era -> C.Tx era -> IO (Maybe (TransactionContext era))
 mkTransactionContext cm bc tx = do
+    let res = evaluateTransaction cm bc tx
+    pCompact res
     case getNonEmptyIntersection cm bc tx of
         Nothing -> pure Nothing
         Just nei -> pure $ Just $ TransactionContext tx nei
 
 evaluateTransaction ::
+    forall era.
+    ConfigMap ->
     BlockContext era ->
     C.Tx era ->
     Map
         C.ScriptWitnessIndex
         (Either C.ScriptExecutionError ([Text], C.ExecutionUnits))
-evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) = do
-    evaluateTransactionExecutionUnitsShelley
-        era
-        ctxSysStart
-        (C.toLedgerEpochInfo ctxEraHistory)
-        (C.LedgerProtocolParameters ctxPParams)
-        ctxInputUtxoMap
-        tx
+evaluateTransaction ConfigMap{..} BlockContext{..} (C.ShelleyTx era tx) = do
+    case ctxAlonzoEraOnwards of
+        C.AlonzoEraOnwardsAlonzo -> runEvaluation
+        C.AlonzoEraOnwardsBabbage -> runEvaluation
+        C.AlonzoEraOnwardsConway -> runEvaluation
+        C.AlonzoEraOnwardsDijkstra -> runEvaluation
+  where
+    runEvaluation ::
+        (L.Script (C.ShelleyLedgerEra era) ~ Alonzo.AlonzoScript (C.ShelleyLedgerEra era)) =>
+        Map
+            C.ScriptWitnessIndex
+            (Either C.ScriptExecutionError ([Text], C.ExecutionUnits))
+    runEvaluation =
+        evaluateTransactionExecutionUnitsShelley
+            subMap
+            era
+            ctxSysStart
+            (C.toLedgerEpochInfo ctxEraHistory)
+            (C.LedgerProtocolParameters ctxPParams)
+            ctxInputUtxoMap
+            tx
+
+    mkLedgerScript ResolvedScript{..} =
+        case rsScriptFileContent of
+            Just scrInAny ->
+                case C.toScriptInEra (C.convert ctxAlonzoEraOnwards) scrInAny of
+                    Nothing -> Nothing
+                    Just scriptInEra -> Just (C.toShelleyScript scriptInEra)
+            _ -> Nothing
+    subMap = Map.mapMaybe mkLedgerScript cmScripts

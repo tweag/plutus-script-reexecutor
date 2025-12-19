@@ -2,6 +2,8 @@ module PSR.Types (
     ChainSyncEvent (..),
     ChainSyncEventException (..),
     Block (..),
+    ScriptSubtitutionInfo,
+    pCompact,
 ) where
 
 --------------------------------------------------------------------------------
@@ -9,8 +11,11 @@ module PSR.Types (
 --------------------------------------------------------------------------------
 
 import Cardano.Api qualified as C
+import Cardano.Ledger.Conway.Scripts qualified as L
 import Control.Exception (Exception)
+import Data.Map (Map)
 import GHC.Generics (Generic)
+import Text.Pretty.Simple
 
 --------------------------------------------------------------------------------
 -- Types
@@ -30,3 +35,20 @@ data Block where
 
 deriving instance Show Block
 
+type ScriptSubtitutionInfo era = Map C.ScriptHash (L.AlonzoScript era)
+
+--------------------------------------------------------------------------------
+-- Debugging Utils
+--------------------------------------------------------------------------------
+
+compactPrintOpts :: OutputOptions
+compactPrintOpts =
+    defaultOutputOptionsDarkBg
+        { outputOptionsCompact = True
+        , outputOptionsCompactParens = True
+        , outputOptionsIndentAmount = 2
+        , outputOptionsStringStyle = Literal
+        }
+
+pCompact :: (Show a) => a -> IO ()
+pCompact = pPrintOpt CheckColorTty compactPrintOpts

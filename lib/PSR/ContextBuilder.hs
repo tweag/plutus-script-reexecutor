@@ -25,6 +25,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import PSR.Chain
 import PSR.ConfigMap (ResolvedScript (..), ScriptEvaluationParameters (..))
+import PSR.Logging
 import PSR.Types
 import PlutusLedgerApi.Common
 import PlutusLedgerApi.V1.EvaluationContext qualified as V1
@@ -132,7 +133,7 @@ makeEvaluationContext params lang = case lang of
         Nothing -> C.throwError $ "Unknown cost model for lang: " <> C.textShow lang
 
 getScriptEvaluationContext ::
-    (HasLoggerEnv context) =>
+    (HasLogger context) =>
     BlockContext era ->
     Map C.ScriptHash ResolvedScript ->
     App context err (Maybe (Map C.ScriptHash EvaluationContext))
@@ -141,13 +142,13 @@ getScriptEvaluationContext BlockContext{..} relevantScripts = do
         langs = Map.mapMaybe (fmap (sepLanguage . fst) . rsScriptForEvaluation) relevantScripts
     res <- C.runExceptT $ traverse (makeEvaluationContext ctxCostModels) langs
     case res of
-        Left err -> Nothing <$ logAttention_ err
+        Left err -> Nothing <$ logMsgR Warning err
         Right evalContexts -> do
             C.liftIO $ print (Map.keys evalContexts)
             pure $ Just evalContexts
 
 mkTransactionContext ::
-    (HasConfigMap context, HasLoggerEnv context) =>
+    (HasConfigMap context, HasLogger context) =>
     BlockContext era ->
     C.Tx era ->
     App context err (Maybe (TransactionContext era))

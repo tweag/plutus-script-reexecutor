@@ -25,6 +25,7 @@ import Ouroboros.Network.Protocol.ChainSync.Client (
 import PSR.Chain
 import PSR.ConfigMap (ResolvedScript (..))
 import PSR.ContextBuilder
+import PSR.Logging (HasLogger, LogSeverity (..), logMsgR, logMsgWithR)
 import PSR.Types
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Scanl (Scanl)
@@ -179,7 +180,7 @@ streamBlocks conn points = do
         & Stream.mapMaybe (\(a, b) -> (a,) <$> b)
 
 streamTransactionContext ::
-    (HasConfigMap context, HasLoggerEnv context) =>
+    (HasConfigMap context, HasLogger context) =>
     BlockContext era ->
     Stream (App context err) (TransactionContext era)
 streamTransactionContext ctx1@BlockContext{..} =
@@ -188,13 +189,13 @@ streamTransactionContext ctx1@BlockContext{..} =
         & Stream.trace
             ( \TransactionContext{..} -> do
                 -- pCompact ctx
-                logTrace_ "Found scripts:"
+                logMsgR Debug "Found scripts:"
                 mapM_ printResolvedScript ctxRelevantScripts
             )
 
-printResolvedScript :: (HasLoggerEnv context) => ResolvedScript -> App context err ()
+printResolvedScript :: (HasLogger context) => ResolvedScript -> App context err ()
 printResolvedScript ResolvedScript{..} =
-    logTrace "Script" $
+    logMsgWithR Debug "Script" $
         object
             [ "rsScriptHash" .= rsScriptHash
             , "rsName" .= rsName
@@ -205,7 +206,7 @@ printResolvedScript ResolvedScript{..} =
 -- Main
 --------------------------------------------------------------------------------
 
-mainLoop :: (HasConfigMap context, HasLoggerEnv context) => [C.ChainPoint] -> App context err ()
+mainLoop :: (HasConfigMap context, HasLogger context) => [C.ChainPoint] -> App context err ()
 mainLoop points = do
     conn <- view cmLocalNodeConn
     streamBlocks conn points

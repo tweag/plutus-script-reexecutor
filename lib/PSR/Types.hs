@@ -3,6 +3,7 @@ module PSR.Types (
     ChainSyncEventException (..),
     Block (..),
     ScriptSubtitutionInfo,
+    TransactionExecutionResult,
     pCompact,
 ) where
 
@@ -14,6 +15,7 @@ import Cardano.Api qualified as C
 import Cardano.Ledger.Conway.Scripts qualified as L
 import Control.Exception (Exception)
 import Data.Map (Map)
+import Data.Text (Text)
 import GHC.Generics (Generic)
 import Text.Pretty.Simple
 
@@ -36,6 +38,11 @@ data Block where
 deriving instance Show Block
 
 type ScriptSubtitutionInfo era = Map C.ScriptHash (L.AlonzoScript era)
+
+type TransactionExecutionResult =
+    Map
+        C.ScriptWitnessIndex
+        (Either C.ScriptExecutionError ([Text], C.ExecutionUnits))
 
 --------------------------------------------------------------------------------
 -- Debugging Utils

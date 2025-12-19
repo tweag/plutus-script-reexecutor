@@ -10,7 +10,7 @@ module PSR.Streaming (
 -- Imports
 --------------------------------------------------------------------------------
 
-import PSR.Events.Interface (Events(..))
+import PSR.Events.Interface (Events (..))
 
 import Cardano.Api qualified as C
 import Control.Concurrent (forkIO)
@@ -168,13 +168,8 @@ streamTransactionContext ::
     CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
 streamTransactionContext cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
-        & Stream.mapMaybeM (mkTransactionContext cm ctx1)
-        & Stream.trace
-            ( \TransactionContext{..} -> do
-                -- pCompact ctx
-                putStrLn "Found scripts:"
-                mapM_ pCompact ctxRelevantScripts
-            )
+        & Stream.mapMaybe (mkTransactionContext cm ctx1)
+        & Stream.trace (pCompact . ctxTransactionExecutionResult)
 
 --------------------------------------------------------------------------------
 -- Main

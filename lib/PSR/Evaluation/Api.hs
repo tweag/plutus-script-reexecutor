@@ -24,7 +24,7 @@ import Data.Text (Text)
 import GHC.Exts (IsList (..))
 
 import PSR.Evaluation.Ledger (evalTxExUnitsWithLogs)
-import PSR.Types (ScriptSubtitutionInfo)
+import PSR.Types (ScriptSubtitutionInfo, TransactionExecutionResult)
 
 --------------------------------------------------------------------------------
 -- Evaluators
@@ -66,7 +66,7 @@ evaluateTransactionExecutionUnitsShelley ::
     LedgerProtocolParameters era ->
     UTxO era ->
     L.Tx (ShelleyLedgerEra era) ->
-    Map ScriptWitnessIndex (Either ScriptExecutionError (EvalTxExecutionUnitsLog, ExecutionUnits))
+    TransactionExecutionResult
 evaluateTransactionExecutionUnitsShelley ssi sbe systemstart epochInfo (LedgerProtocolParameters pp) utxo tx =
     caseShelleyToMaryOrAlonzoEraOnwards
         (const Map.empty)

@@ -26,7 +26,7 @@ import Data.Text (Text)
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
-import PSR.Types (pCompact)
+import PSR.Types
 
 --------------------------------------------------------------------------------
 -- Block Context
@@ -62,8 +62,6 @@ data BlockContext era where
         } ->
         BlockContext era
 
--- deriving instance Show (BlockContext era)
-
 mkBlockContext ::
     C.LocalNodeConnectInfo ->
     C.ChainPoint ->
@@ -89,6 +87,7 @@ data TransactionContext era where
     TransactionContext ::
         { ctxTransaction :: C.Tx era
         , ctxRelevantScripts :: Map.Map C.ScriptHash ResolvedScript
+        , ctxTransactionExecutionResult :: TransactionExecutionResult
         } ->
         TransactionContext era
 
@@ -121,23 +120,23 @@ getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
     pure interestingScripts
 
 mkTransactionContext ::
-    ConfigMap -> BlockContext era -> C.Tx era -> IO (Maybe (TransactionContext era))
+    ConfigMap -> BlockContext era -> C.Tx era -> Maybe (TransactionContext era)
 mkTransactionContext cm bc tx = do
-    let res = evaluateTransaction cm bc tx
-    pCompact res
-    case getNonEmptyIntersection cm bc tx of
-        Nothing -> pure Nothing
-        Just nei -> pure $ Just $ TransactionContext tx nei
+    nei <- getNonEmptyIntersection cm bc tx
+    let eres = evaluateTransaction bc tx nei
+    pure $ TransactionContext tx nei eres
+
+--------------------------------------------------------------------------------
+-- Evaluation
+--------------------------------------------------------------------------------
 
 evaluateTransaction ::
     forall era.
-    ConfigMap ->
     BlockContext era ->
     C.Tx era ->
-    Map
-        C.ScriptWitnessIndex
-        (Either C.ScriptExecutionError ([Text], C.ExecutionUnits))
-evaluateTransaction ConfigMap{..} BlockContext{..} (C.ShelleyTx era tx) = do
+    Map.Map C.ScriptHash ResolvedScript ->
+    TransactionExecutionResult
+evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
     case ctxAlonzoEraOnwards of
         C.AlonzoEraOnwardsAlonzo -> runEvaluation
         C.AlonzoEraOnwardsBabbage -> runEvaluation
@@ -166,4 +165,4 @@ evaluateTransaction ConfigMap{..} BlockContext{..} (C.ShelleyTx era tx) = do
                     Nothing -> Nothing
                     Just scriptInEra -> Just (C.toShelleyScript scriptInEra)
             _ -> Nothing
-    subMap = Map.mapMaybe mkLedgerScript cmScripts
+    subMap = Map.mapMaybe mkLedgerScript scriptMap

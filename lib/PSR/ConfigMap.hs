@@ -14,7 +14,7 @@ import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Traversable (for)
 import Data.Yaml (decodeFileEither, withObject)
 import Data.Yaml.Aeson (Parser, Value (Object), object, (.:), (.:?), (.=))
-import Lens.Micro.Platform (makeLenses)
+import Lens.Micro.Platform (makeClassy)
 import PlutusLedgerApi.Common (
     MajorProtocolVersion,
     PlutusLedgerLanguage (..),
@@ -112,7 +112,7 @@ data ConfigMap = ConfigMap
     , _cmLocalNodeConn :: LocalNodeConnectInfo
     }
 
-makeLenses ''ConfigMap
+makeClassy ''ConfigMap
 
 {- | Convert a Text containing hex encoded script into a (possible invalid)
 'SerialisedScript'

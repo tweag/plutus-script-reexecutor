@@ -57,6 +57,7 @@ library
     PSR.HTTP.Server
     PSR.Logging
     PSR.Logging.Interface
+    PSR.Logging.LogBase
     PSR.Storage.Interface
     PSR.Storage.SQLite
     PSR.Streaming

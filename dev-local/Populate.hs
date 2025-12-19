@@ -10,7 +10,9 @@ module Populate (
     flg,
     opt,
     drain,
+    getPolicyId,
     -- Globals
+    env_LOCAL_CONFIG_DIR,
     env_POPULATE_WORK_DIR,
     env_TESTNET_WORK_DIR,
     env_CARDANO_TESTNET_MAGIC,
@@ -91,6 +93,9 @@ env_POPULATE_WORK_DIR = "work"
 
 env_TESTNET_WORK_DIR :: FilePath
 env_TESTNET_WORK_DIR = "devnet-env"
+
+env_LOCAL_CONFIG_DIR :: FilePath
+env_LOCAL_CONFIG_DIR = "local-config"
 
 env_CARDANO_SOCKET :: FilePath
 env_CARDANO_SOCKET = env_TESTNET_WORK_DIR </> "socket/node1/sock"
@@ -232,8 +237,8 @@ data AppEnv = AppEnv
 
 makeAppEnv :: IO AppEnv
 makeAppEnv = do
-    let policyFilePath = "dev-local/policy.plutus"
-        validatorFilePath = "dev-local/validator.plutus"
+    let policyFilePath = env_LOCAL_CONFIG_DIR </> "policy.plutus"
+        validatorFilePath = env_LOCAL_CONFIG_DIR </> "validator.plutus"
         tokenName = "TEST_TOKEN"
         assetAmount = "100"
         numIterations = 10

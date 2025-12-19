@@ -44,5 +44,7 @@ scripts:
   - script_hash: "ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b" 
     name: "unknown"
 
-  - script_hash: "195156f87f299562300852de1f1699d574e501b4ba886eab3ad6cf93"
-    name: "Local Policy"
+  - script_hash: "3a888d65f16790950a72daee1f63aa05add6d268434107cfa5b67712"
+    name: "Local Validator"
+    source:
+      path: "dev-local/validator-debug.plutus"

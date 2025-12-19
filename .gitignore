@@ -9,3 +9,4 @@ dist-newstyle/
 devnet-env
 work
 psr.db
+local-config/

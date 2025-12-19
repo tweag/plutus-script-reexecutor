@@ -14,6 +14,7 @@ import Populate
 import Streamly.Console.Stdio qualified as Console
 import Streamly.Unicode.String (str)
 import System.Environment (setEnv)
+import System.FilePath ((</>))
 import System.IO (BufferMode (..), hSetBuffering, stderr, stdout)
 
 -------------------------------------------------------------------------------
@@ -24,6 +25,7 @@ data Command
     = StartLocalTestnet
     | Clean
     | Populate
+    | Setup
 
 commandParser :: Parser Command
 commandParser =
@@ -46,6 +48,12 @@ commandParser =
                     (pure Populate)
                     (progDesc "Populate the local network with initial data")
                 )
+            <> command
+                "setup"
+                ( info
+                    (pure Setup)
+                    (progDesc "Setup the initial config files")
+                )
         )
 
 opts :: ParserInfo Command
@@ -55,6 +63,36 @@ opts =
         ( fullDesc
             <> progDesc "Local development management tool"
         )
+
+--------------------------------------------------------------------------------
+-- Create config
+--------------------------------------------------------------------------------
+
+createScriptsYaml :: IO ()
+createScriptsYaml = do
+    policyPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "policy.plutus"
+    validatorPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "validator.plutus"
+    writeFile
+        (env_LOCAL_CONFIG_DIR </> "scripts.yaml")
+        [str|
+scripts:
+
+  - script_hash: "#{policyPolicyId}"
+    name: "Local Policy"
+    source:
+      path: "#{env_LOCAL_CONFIG_DIR}/policy-debug.plutus"
+
+  - script_hash: "#{validatorPolicyId}"
+    name: "Local Validator"
+    source:
+      path: "#{env_LOCAL_CONFIG_DIR}/validator-debug.plutus"
+|]
+
+createConfig :: IO ()
+createConfig = do
+    runCmd_ [str|mkdir -p #{env_LOCAL_CONFIG_DIR}|]
+    runCmd_ [str|cabal run export-scripts -- --local-config-dir #{env_LOCAL_CONFIG_DIR}|]
+    createScriptsYaml
 
 --------------------------------------------------------------------------------
 -- Main
@@ -76,8 +114,14 @@ startLocalTestnet = do
 
 clean :: IO ()
 clean = do
+    runCmd_ [str|rm -rf #{env_LOCAL_CONFIG_DIR}|]
     runCmd_ [str|rm -rf #{env_TESTNET_WORK_DIR}|]
     runCmd_ [str|rm -rf #{env_POPULATE_WORK_DIR}|]
+
+setup :: IO ()
+setup = do
+    clean
+    createConfig
 
 main :: IO ()
 main = do
@@ -88,3 +132,4 @@ main = do
         StartLocalTestnet -> startLocalTestnet
         Clean -> clean
         Populate -> populate
+        Setup -> setup

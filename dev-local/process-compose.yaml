@@ -1,8 +1,14 @@
 version: "0.5"
 
 processes:
+  setup:
+    command: "cabal run dev-local -- setup"
+
   cardano-testnet:
     command: "cabal run dev-local -- start-local-testnet"
+    depends_on:
+      setup:
+        condition: process_completed_successfully
     readiness_probe:
       exec:
         # NOTE: devnet-env is hardcoded here.
@@ -16,13 +22,8 @@ processes:
 
   populate:
     command: "cabal run dev-local -- populate"
-    depends_on:
-      cardano-testnet:
-        condition: process_healthy
+    disabled: true
 
   script-reexecutor:
-    command: "cabal run plutus-script-reexecutor -- --socket devnet-env/socket/node1/sock --testnet 42 --script-yaml scripts.yaml"
-    depends_on:
-      cardano-testnet:
-        condition: process_healthy
+    command: "cabal run plutus-script-reexecutor -- --socket devnet-env/socket/node1/sock --testnet 42 --script-yaml local-config/scripts.yaml"
     disabled: true

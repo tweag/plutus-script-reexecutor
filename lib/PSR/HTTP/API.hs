@@ -3,19 +3,18 @@
 
 module PSR.HTTP.API (
     ServerAPI,
-    EventType (..),
-    EventFilterParams (..),
     SiteRoutes (..),
     EventRoutes (..),
-    siteApi,
     Event(..),
+    siteApi,
 ) where
+
+import PSR.Events.Interface (Event(..), EventType(..), EventFilterParams(..), EventPayload(..), ExecutionEventPayload(..))
 
 import Cardano.Api (BlockHeader(..))
 
 import Data.Aeson (ToJSON(..), object, (.=))
 import Data.Text (Text)
-import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
 import Servant
 import Servant.QueryParam.Record (RecordParam)
@@ -28,23 +27,12 @@ instance ToJSON BlockHeader where
     , "block_no" .= toJSON blockNo
     ]
 
-data Event = Event
-    { eventType :: EventType
-    , blockHeader :: BlockHeader
-    , created_at :: UTCTime
-    }
-    deriving (Generic)
-
+instance ToJSON ExecutionEventPayload 
+instance ToJSON EventPayload
 instance ToJSON Event
 
 data DropPrefixExp :: sym -> Exp sym
 type instance Eval (DropPrefixExp sym) = DropPrefix sym
-
-data EventType
-    = Execution
-    | Selection
-    | Cancellation
-    deriving (Generic)
 
 instance ToJSON EventType
 
@@ -54,18 +42,6 @@ instance FromHttpApiData EventType where
         "selection" -> pure Selection
         "cancellation" -> pure Cancellation
         _ -> Left "Unknown event type"
-
-data EventFilterParams = EventFilterParams
-    { _eventFilterParam_type :: Maybe EventType
-    , _eventFilterParam_time_begin :: Maybe UTCTime
-    , _eventFilterParam_time_end :: Maybe UTCTime
-    , _eventFilterParam_slot_begin :: Maybe Integer
-    , _eventFilterParam_slot_end :: Maybe Integer
-    , _eventFilterParam_limit :: Maybe Integer
-    , _eventFilterParam_offset :: Maybe Integer
-    , _eventFilterParam_name_or_script_hash :: Maybe Text
-    }
-    deriving (Generic)
 
 type EventFilterParams' = RecordParam DropPrefixExp EventFilterParams
 

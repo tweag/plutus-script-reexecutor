@@ -1,11 +1,12 @@
+{- HLINT ignore "Use <|>" -}
 module PSR.HTTP.Server (
     run,
 ) where
 
 import PSR.HTTP.API as API
-import PSR.Storage.Interface (Storage(..), Event(..))
+import PSR.Events.Interface (Events(..), EventFilterParams(..))
+import PSR.Websocket.Server (wsServer)
 
-import Data.Functor ((<&>))
 import Control.Monad.IO.Class (liftIO)
 import Data.Default (def)
 import Network.Wai.Handler.Warp qualified as Warp
@@ -16,8 +17,13 @@ import Servant
 import Servant.QueryParam.Server.Record ()
 import Servant.Server.Generic (AsServer)
 
-server :: Storage -> Server ServerAPI
-server Storage{..} = siteH
+import Network.Wai.Handler.WebSockets (websocketsOr)
+import Network.WebSockets (
+  defaultConnectionOptions,
+ )
+
+server :: Events -> Server ServerAPI
+server Events{getEvents} = siteH
   where
     siteH :: SiteRoutes AsServer
     siteH =
@@ -36,10 +42,10 @@ server Storage{..} = siteH
         -- The capture parameter `name_or_script_hash` has a higher priority over the query param
         let nameOrScriptHashFilterParameter = maybe (_eventFilterParam_name_or_script_hash filterParams') Just mName
         let filterParams = filterParams' {_eventFilterParam_name_or_script_hash = nameOrScriptHashFilterParameter}
-        events <- liftIO $ getEvents filterParams
-        pure $ events <&> \e -> API.Event e.eventType e.blockHeader e.createdAt
+        liftIO $ getEvents filterParams
 
-run :: Storage -> Warp.Port -> IO ()
-run storage port = do
+run :: Events -> Warp.Port -> IO ()
+run events port = do
     _ <- register ghcMetrics
-    Warp.run port (prometheus def $ serve siteApi (server storage))
+    let mainApp = websocketsOr defaultConnectionOptions (wsServer events) $ serve siteApi (server events)
+    Warp.run port (prometheus def mainApp) 

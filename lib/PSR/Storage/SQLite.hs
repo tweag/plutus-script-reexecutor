@@ -2,6 +2,7 @@
 
 module PSR.Storage.SQLite where
 
+import PSR.Events.Interface (Event(..), EventType(..), ExecutionEventPayload(..), EventFilterParams(..), EventPayload(..))
 import PSR.Storage.Interface
 
 import Cardano.Api (
@@ -18,6 +19,7 @@ import Cardano.Api qualified as C
 
 import Data.Functor ((<&>))
 import Data.Maybe (catMaybes, fromMaybe)
+import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time.Clock (UTCTime)
 import Database.SQLite.Simple
@@ -47,8 +49,8 @@ mkStorage conn = do
       [Only blockId :: Only Integer] -> return blockId
       _ -> error "Can't find the inserted block"
 
-  addExecutionEvent :: ExecutionEventPayload -> IO ()
-  addExecutionEvent ExecutionEventPayload{..} = do
+  addExecutionEvent :: BlockHeader -> ExecutionEventPayload -> IO ()
+  addExecutionEvent blockHeader ExecutionEventPayload{..} = do
     withTransaction conn $ do
       blockId <- getOrCreateBlockId blockHeader
       execute
@@ -126,7 +128,11 @@ mkStorage conn = do
         eventsQuery =
           "select b.block_no, b.slot_no, b.hash, \
           \ CASE WHEN e.block_id THEN 'execution' WHEN c.block_id THEN 'cancellation' WHEN s.block_id THEN 'selection' END, \
-          \ COALESCE(e.created_at, c.created_at, s.created_at) \
+          \ COALESCE(e.created_at, c.created_at, s.created_at), \
+          \ COALESCE(e.script_hash, s.script_hash), \
+          \ e.transaction_hash, \
+          \ e.name, \
+          \ e.trace \
           \ from block b \
           \ left join execution_event e on e.block_id = b.block_id \
           \ left join cancellation_event c on c.block_id = b.block_id \
@@ -137,16 +143,34 @@ mkStorage conn = do
 
         parameters = map snd paramsWithQueries <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
-      rows :: [(BlockNo, SlotNo, Hash BlockHeader, EventType, UTCTime)] <-
+      rows :: [(BlockNo, SlotNo, Hash BlockHeader, EventType, UTCTime, Maybe ScriptHash, Maybe TxId, Maybe Text, Maybe Text)] <-
         queryNamed conn eventsQuery parameters
 
       pure $
         rows <&> \case
-          (blockNo, slotNo, hash, eventType, createdAt) ->
+          (blockNo, slotNo, hash, eventType, createdAt, mScriptHash, mTransactionHash, scriptName, mTrace) ->
             let
               blockHeader = BlockHeader slotNo hash blockNo
-             in
-              Event{..}
+              payload = case eventType of
+                  Execution ->
+                    case (mScriptHash, mTransactionHash, mTrace) of
+                      (Just scriptHash, Just transactionHash, Just trace) -> ExecutionPayload $ ExecutionEventPayload
+                        { transactionHash
+                        , scriptHash
+                        , scriptName
+                        , trace
+                        }
+                      _ -> 
+                          -- TODO: handle the error properly
+                          error "The execution event should have a script hash, a transaction hash and a trace"
+                  Cancellation ->
+                      case mScriptHash of
+                          Just sh -> CancellationPayload sh 
+                          _ -> 
+                              -- TODO: handle the error properly
+                              error "The cancellation event should have a script hash"
+                  Selection -> SelectionPayload
+            in Event{..}
 
 initSchema :: Connection -> IO ()
 initSchema conn = withTransaction conn $ do
@@ -213,8 +237,22 @@ instance FromField (Hash BlockHeader) where
 instance ToField ScriptHash where
   toField hash = toField $ serialiseToRawBytes hash
 
+instance FromField ScriptHash where
+  fromField f = do
+    bs <- fromField f
+    case deserialiseFromRawBytes C.AsScriptHash bs of
+      Right v -> pure v
+      Left err -> returnError ConversionFailed f (show err)
+
 instance ToField TxId where
   toField txId = toField $ serialiseToRawBytes txId
+
+instance FromField TxId where
+  fromField f = do
+    bs <- fromField f
+    case deserialiseFromRawBytes C.AsTxId bs of
+      Right v -> pure v
+      Left err -> returnError ConversionFailed f (show err)
 
 instance FromField EventType where
   fromField f = do

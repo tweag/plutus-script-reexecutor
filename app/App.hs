@@ -9,6 +9,7 @@ import Options.Applicative
 import PSR.ConfigMap qualified as CM
 import PSR.HTTP qualified as HTTP
 import PSR.Storage.SQLite qualified as Storage
+import PSR.Events qualified as Events 
 import PSR.Streaming qualified as Streaming
 
 --------------------------------------------------------------------------------
@@ -28,6 +29,7 @@ main = do
     putStrLn "Started..."
 
     Storage.withSqliteStorage sqlitePath $ \storage ->
-        Async.withAsync (HTTP.run storage httpServerPort) $ \serverAsync -> do
-            Async.link serverAsync
-            Streaming.mainLoop storage config points
+        Events.withEvents storage $ \events ->
+            Async.withAsync (HTTP.run events httpServerPort) $ \serverAsync -> do
+                Async.link serverAsync
+                Streaming.mainLoop events config points

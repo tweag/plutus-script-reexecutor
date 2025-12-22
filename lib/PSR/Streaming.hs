@@ -11,7 +11,7 @@ module PSR.Streaming (
 -- Imports
 --------------------------------------------------------------------------------
 
-import PSR.Storage.Interface (Storage(..)) 
+import PSR.Events.Interface (Events(..)) 
 
 import Cardano.Api qualified as C
 import Control.Concurrent (forkIO)
@@ -156,11 +156,11 @@ subscribeToChainSyncEvents conn points callback =
 -- Streams
 --------------------------------------------------------------------------------
 
-traceChainSyncEvent :: Storage -> ChainSyncEvent -> IO ()
-traceChainSyncEvent s = \case
+traceChainSyncEvent :: Events -> ChainSyncEvent -> IO ()
+traceChainSyncEvent events = \case
     RollForward (C.BlockInMode _ blk) _ -> do
         let header = C.getBlockHeader blk 
-        s.addSelectionEvent header
+        events.addSelectionEvent header
     _ -> pure ()
 
 streamChainSyncEvents ::
@@ -172,11 +172,11 @@ streamChainSyncEvents ::
 streamChainSyncEvents conn points =
     Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
 
-streamBlocks :: Storage -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
-streamBlocks storage CM.ConfigMap{..} points =
+streamBlocks :: Events -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
+streamBlocks events CM.ConfigMap{..} points =
     streamChainSyncEvents cmLocalNodeConn points
         & Stream.filter (not . isByron)
-        & Stream.trace (traceChainSyncEvent storage)
+        & Stream.trace (traceChainSyncEvent events)
         & fmap getEventBlock
         & Stream.postscanl unshiftFst
         -- TODO: Can we filter here to remove any block that doesn't reference
@@ -199,9 +199,9 @@ streamTransactionContext cm ctx1@BlockContext{..} =
 -- Main
 --------------------------------------------------------------------------------
 
-mainLoop :: Storage -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
-mainLoop storage cm@CM.ConfigMap{..} points =
-    streamBlocks storage cm points
+mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
+mainLoop events cm@CM.ConfigMap{..} points =
+    streamBlocks events cm points
         & Stream.fold (Fold.drainMapM (uncurry consumeBlock))
   where
     consumeBlock previousChainPt (Block era txList) = do

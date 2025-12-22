@@ -34,3 +34,4 @@ data Block where
     Block :: C.ShelleyBasedEra era -> [C.Tx era] -> Block
 
 deriving instance Show Block
+

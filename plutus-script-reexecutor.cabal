@@ -21,6 +21,7 @@ common lang
     DeriveLift
     DeriveTraversable
     DerivingStrategies
+    DuplicateRecordFields
     ExplicitForAll
     FlexibleContexts
     FlexibleInstances
@@ -33,6 +34,7 @@ common lang
     NamedFieldPuns
     NumericUnderscores
     OverloadedStrings
+    OverloadedRecordDot
     PolyKinds
     QuasiQuotes
     RecordWildCards
@@ -52,6 +54,8 @@ library
     PSR.Chain
     PSR.ConfigMap
     PSR.ContextBuilder
+    PSR.Events
+    PSR.Events.Interface
     PSR.HTTP
     PSR.HTTP.API
     PSR.HTTP.Server
@@ -59,6 +63,7 @@ library
     PSR.Storage.SQLite
     PSR.Streaming
     PSR.Types
+    PSR.Websocket.Server
 
   build-depends:
     , aeson
@@ -87,12 +92,15 @@ library
     , sqlite-simple
     , streamly
     , streamly-core
+    , stm
     , text
     , time
     , transformers
     , wai
     , wai-middleware-prometheus
+    , wai-websockets
     , warp
+    , websockets
     , yaml
 
 executable plutus-script-reexecutor
@@ -111,6 +119,7 @@ executable plutus-script-reexecutor
     , pretty-simple
     , streamly
     , streamly-core
+    , stm
     , warp
     , yaml
 

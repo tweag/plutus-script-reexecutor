@@ -71,6 +71,7 @@ library
     , cardano-slotting
     , containers
     , data-default
+    , effectful
     , memory
     , microlens
     , ouroboros-consensus
@@ -106,6 +107,7 @@ executable plutus-script-reexecutor
     , bytestring
     , cardano-api
     , containers
+    , effectful-core
     , optparse-applicative
     , plutus-script-reexecutor
     , pretty-simple

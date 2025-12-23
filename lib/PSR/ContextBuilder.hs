@@ -29,6 +29,11 @@ import PlutusLedgerApi.V1.EvaluationContext qualified as V1
 import PlutusLedgerApi.V2.EvaluationContext qualified as V2
 import PlutusLedgerApi.V3.EvaluationContext qualified as V3
 
+import Data.Text (Text)
+import Data.Text.IO qualified as TIO
+import Effectful (Eff, IOE, liftIO, type (:>))
+import Effectful.Error.Static (Error, runErrorNoCallStack, throwError)
+
 --------------------------------------------------------------------------------
 -- Block Context
 --------------------------------------------------------------------------------
@@ -55,18 +60,19 @@ data BlockContext era where
 deriving instance Show (BlockContext era)
 
 mkBlockContext ::
+    (IOE :> es) =>
     C.LocalNodeConnectInfo ->
     C.ChainPoint ->
     C.ShelleyBasedEra era ->
     [C.Tx era] ->
-    IO (BlockContext era)
+    Eff es (BlockContext era)
 mkBlockContext conn prevCp era txs = do
     let query =
             (,)
                 <$> utxoMapQuery era txs
                 <*> costModelsQuery era
     -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
-    (umap, costs) <- runLocalStateQueryExpr conn prevCp query
+    (umap, costs) <- liftIO $ runLocalStateQueryExpr conn prevCp query
     pure $
         BlockContext
             { ctxPrevChainPoint = prevCp
@@ -113,37 +119,51 @@ getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
             Map.restrictKeys cmScripts $
                 Set.union (getMintPolicies tx) (getInputScriptAddrs ctxInputUtxoMap tx)
     guard (not $ Map.null interestingScripts)
-    pure $ interestingScripts
+    pure interestingScripts
 
 makeEvaluationContext ::
+    (Error Text :> es) =>
     S.CostModels ->
     PlutusLedgerLanguage ->
-    C.ExceptT String IO EvaluationContext
+    Eff es EvaluationContext
 makeEvaluationContext params lang = case lang of
     PlutusV1 -> run L.PlutusV1 V1.mkEvaluationContext
     PlutusV2 -> run L.PlutusV2 V2.mkEvaluationContext
     PlutusV3 -> run L.PlutusV3 V3.mkEvaluationContext
   where
     run lng f = case Map.lookup lng (L.costModelsValid params) of
-        Just costs -> C.modifyError show . fmap fst . runWriterT $ f (L.getCostModelParams costs)
-        Nothing -> C.throwError $ "Unknown cost model for lang: " ++ show lang
+        Just costs -> do
+            eres <-
+                C.runExceptT
+                    . C.modifyError C.textShow
+                    . fmap fst
+                    . runWriterT
+                    . f
+                    $ L.getCostModelParams costs
+            either throwError pure eres
+        Nothing -> throwError $ "Unknown cost model for lang: " <> C.textShow lang
 
 getScriptEvaluationContext ::
+    (IOE :> es) =>
     BlockContext era ->
     Map C.ScriptHash ResolvedScript ->
-    IO (Maybe (Map C.ScriptHash EvaluationContext))
+    Eff es (Maybe (Map C.ScriptHash EvaluationContext))
 getScriptEvaluationContext BlockContext{..} relevantScripts = do
     let langs :: Map C.ScriptHash PlutusLedgerLanguage
         langs = Map.mapMaybe (fmap (sepLanguage . fst) . rsScriptForEvaluation) relevantScripts
-    res <- C.runExceptT $ traverse (makeEvaluationContext ctxCostModels) langs
+    res <- runErrorNoCallStack $ traverse (makeEvaluationContext ctxCostModels) langs
     case res of
-        Left err -> Nothing <$ putStrLn err
+        Left err -> Nothing <$ liftIO (TIO.putStrLn err)
         Right evalContexts -> do
             C.liftIO $ print (Map.keys evalContexts)
-            pure $ Just $ evalContexts
+            pure $ Just evalContexts
 
 mkTransactionContext ::
-    ConfigMap -> BlockContext era -> C.Tx era -> IO (Maybe (TransactionContext era))
+    (IOE :> es) =>
+    ConfigMap ->
+    BlockContext era ->
+    C.Tx era ->
+    Eff es (Maybe (TransactionContext era))
 mkTransactionContext cm bc tx = do
     case getNonEmptyIntersection cm bc tx of
         Nothing -> pure Nothing

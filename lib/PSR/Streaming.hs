@@ -32,6 +32,8 @@ import Streamly.Data.Stream.Prelude (Stream)
 import Streamly.Data.Stream.Prelude qualified as Stream
 import Text.Pretty.Simple
 
+import Effectful as E
+
 --------------------------------------------------------------------------------
 -- Notes
 --------------------------------------------------------------------------------
@@ -68,7 +70,7 @@ compactPrintOpts =
         , outputOptionsStringStyle = Literal
         }
 
-pCompact :: (Show a) => a -> IO ()
+pCompact :: (Show a, MonadIO m) => a -> m ()
 pCompact = pPrintOpt CheckColorTty compactPrintOpts
 
 --------------------------------------------------------------------------------
@@ -155,15 +157,23 @@ subscribeToChainSyncEvents conn points callback =
 --------------------------------------------------------------------------------
 
 streamChainSyncEvents ::
-    -- | Connection Info
+    (IOE :> es) =>
+    -- \| Connection Info
     C.LocalNodeConnectInfo ->
     -- | The points on the chain to start streaming from
     [C.ChainPoint] ->
-    Stream IO ChainSyncEvent
+    Stream (Eff es) ChainSyncEvent
 streamChainSyncEvents conn points =
-    Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
+    Stream.morphInner
+        E.liftIO
+        $ Stream.fromCallback
+            (void . forkIO . subscribeToChainSyncEvents conn points)
 
-streamBlocks :: CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
+streamBlocks ::
+    (IOE :> es) =>
+    CM.ConfigMap ->
+    [C.ChainPoint] ->
+    Stream (Eff es) (C.ChainPoint, Block)
 streamBlocks CM.ConfigMap{..} points =
     streamChainSyncEvents cmLocalNodeConn points
         & Stream.filter (not . isByron)
@@ -174,14 +184,17 @@ streamBlocks CM.ConfigMap{..} points =
         & Stream.mapMaybe (\(a, b) -> (a,) <$> b)
 
 streamTransactionContext ::
-    CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
+    (IOE :> es) =>
+    CM.ConfigMap ->
+    BlockContext era ->
+    Stream (Eff es) (TransactionContext era)
 streamTransactionContext cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
         & Stream.mapMaybeM (mkTransactionContext cm ctx1)
         & Stream.trace
             ( \TransactionContext{..} -> do
                 -- pCompact ctx
-                putStrLn "Found scripts:"
+                E.liftIO $ putStrLn "Found scripts:"
                 mapM_ pCompact ctxRelevantScripts
             )
 
@@ -189,7 +202,11 @@ streamTransactionContext cm ctx1@BlockContext{..} =
 -- Main
 --------------------------------------------------------------------------------
 
-mainLoop :: CM.ConfigMap -> [C.ChainPoint] -> IO ()
+mainLoop ::
+    (IOE :> es) =>
+    CM.ConfigMap ->
+    [C.ChainPoint] ->
+    Eff es ()
 mainLoop cm@CM.ConfigMap{..} points =
     streamBlocks cm points
         & Stream.fold (Fold.drainMapM (uncurry consumeBlock))

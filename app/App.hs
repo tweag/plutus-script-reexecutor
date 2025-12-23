@@ -11,6 +11,8 @@ import PSR.HTTP qualified as HTTP
 import PSR.Storage.SQLite qualified as Storage
 import PSR.Streaming qualified as Streaming
 
+import Effectful (runEff)
+
 --------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
@@ -30,4 +32,4 @@ main = do
     Storage.withSqliteStorage sqlitePath $ \storage ->
         Async.withAsync (HTTP.run storage httpServerPort) $ \serverAsync -> do
             Async.link serverAsync
-            Streaming.mainLoop config points
+            runEff $ Streaming.mainLoop config points

@@ -8,5 +8,5 @@ dist-newstyle/
 *.hspp
 devnet-env
 work
-psr.db
+*.db
 local-config/

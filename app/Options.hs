@@ -1,8 +1,11 @@
 module Options where
 
 import Cardano.Api
+import Data.Foldable (fold)
 import Network.Wai.Handler.Warp (Port)
 import Options.Applicative
+import System.Environment.Blank (getEnvDefault)
+import Text.Read (readMaybe)
 
 --------------------------------------------------------------------------------
 -- Options
@@ -23,37 +26,51 @@ data Options = Options
     }
     deriving (Show, Eq)
 
-parseOptions :: Parser Options
-parseOptions =
-    Options
-        <$> optSocketPath
-        <*> optNetworkId
-        <*> optScriptYaml
-        <*> optHTTPServerPort
-        <*> optSqlitePath
+mkParseOptions :: IO (Parser Options)
+mkParseOptions = do
+    nodeSocketPath <- getEnvDefault "CARDANO_NODE_SOCKET_PATH" ""
+    nodeNetworkId <- getEnvDefault "CARDANO_NODE_NETWORK_ID" ""
+    pure $
+        Options
+            <$> optSocketPath nodeSocketPath
+            <*> optNetworkId nodeNetworkId
+            <*> optScriptYaml
+            <*> optHTTPServerPort
+            <*> optSqlitePath
   where
-    optSocketPath =
-        File
+    optSocketPath nodeSocketPath =
+        ( File
             <$> strOption
-                ( long "socket"
-                    <> metavar "PATH"
+                ( long "node-socket"
+                    <> metavar "CARDANO_NODE_SOCKET_PATH"
                     <> help "Path to the cardano-node socket"
                 )
+        )
+            <|> ( case nodeSocketPath of
+                    "" -> empty
+                    _ -> pure $ File nodeSocketPath
+                )
 
-    optNetworkId = optMainNet <|> optTestNet
+    optNetworkId nodeNetworkId =
+        optMainNet
+            <|> optTestNet
+            <|> ( case readMaybe nodeNetworkId of
+                    Nothing -> empty
+                    Just networkId -> pure $ Testnet $ NetworkMagic networkId
+                )
     optMainNet = Mainnet <$ flag' () (long "mainnet")
     optTestNet =
         Testnet . NetworkMagic
             <$> option
                 auto
-                ( long "testnet"
-                    <> metavar "MAGIC"
+                ( long "testnet-magic"
+                    <> metavar "CARDANO_NODE_TESTNET_MAGIC"
                     <> help "Network magic"
                 )
     optScriptYaml =
         strOption
             ( long "script-yaml"
-                <> metavar "PATH"
+                <> metavar "SCRIPT_YAML"
                 <> help "Path to script.yaml"
             )
     optHTTPServerPort =
@@ -69,13 +86,29 @@ parseOptions =
             ( long "sqlite-path"
                 <> metavar "SQLITE_PATH"
                 <> help "Path to sqlite database"
-                <> value "psr.db"
+                <> value "plutus-script-reexecutor.db"
             )
 
-psrOpts :: ParserInfo Options
-psrOpts =
-    info
-        (parseOptions <**> helper)
-        ( fullDesc
-            <> header "plutus-script-reexecutor"
-        )
+mkPsrOpts :: IO (ParserInfo Options)
+mkPsrOpts = do
+    parseOptions <- mkParseOptions
+    pure $
+        info
+            (parseOptions <**> helper)
+            (progDesc "Run the plutus-script-reexecutor service")
+
+data Command = Run Options | GenerateScriptsExample
+
+mkPsrCommands :: IO (ParserInfo Command)
+mkPsrCommands = do
+    psrOpts <- mkPsrOpts
+    let parser =
+            subparser $
+                fold
+                    [ command "run" (Run <$> psrOpts)
+                    , command "generate-scripts-example" (info (pure GenerateScriptsExample) (progDesc "Generate scripts.yaml example file"))
+                    ]
+    pure $
+        info
+            (parser <**> helper)
+            idm

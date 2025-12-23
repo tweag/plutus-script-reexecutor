@@ -25,5 +25,5 @@ processes:
     disabled: true
 
   script-reexecutor:
-    command: "cabal run plutus-script-reexecutor -- --socket devnet-env/socket/node1/sock --testnet 42 --script-yaml local-config/scripts.yaml"
+    command: "cabal run plutus-script-reexecutor -- run --node-socket devnet-env/socket/node1/sock --testnet-magic 42 --script-yaml local-config/scripts.yaml"
     disabled: true

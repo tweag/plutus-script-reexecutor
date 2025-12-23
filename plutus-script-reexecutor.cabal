@@ -118,6 +118,7 @@ executable plutus-script-reexecutor
     , bytestring
     , cardano-api
     , containers
+    , directory
     , optparse-applicative
     , plutus-script-reexecutor
     , pretty-simple

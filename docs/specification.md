@@ -166,6 +166,17 @@ Prometheus metrics endpoint exposing operational statistics in standard expositi
 - Storage: database size by table, evictions, storage limit hits
 - System Health: active processes, service availability, resources consumption
 
+##### WebSocket endpoints /events-ws and /events-ws/{ script_hash | name or alias }
+
+Streams events in JSON format. Also supports the query parameters, allowing to filter out the irrelevant events. 
+
+**Query Parameters**:
+- `type`: `execution`, `selection`, or `cancellation` (optional)
+- `time_begin`: ISO 8601 time range begin (optional)
+- `time_end`: ISO 8601 time range end (optional)
+- `slot_begin`: Slot number range begin (optional)
+- `slot_end`: Slot number range end (optional)
+
 #### 5. Full Cardano Node Integration
 
 **Purpose**: Provide data for the scanning process. 

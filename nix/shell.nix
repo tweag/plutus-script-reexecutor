@@ -102,6 +102,9 @@ let
     pkgs.bash
     pkgs.git
     pkgs.which
+
+    pkgs.websocat
+    pkgs.jq
   ];
 
   shell = project.shellFor {

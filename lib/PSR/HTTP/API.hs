@@ -5,29 +5,32 @@ module PSR.HTTP.API (
     ServerAPI,
     SiteRoutes (..),
     EventRoutes (..),
-    Event(..),
+    EventsWebSockets (..),
+    Event (..),
     siteApi,
 ) where
 
-import PSR.Events.Interface (Event(..), EventType(..), EventFilterParams(..), EventPayload(..), ExecutionEventPayload(..))
+import PSR.Events.Interface (Event (..), EventFilterParams (..), EventPayload (..), EventType (..), ExecutionEventPayload (..))
 
-import Cardano.Api (BlockHeader(..))
+import Cardano.Api (BlockHeader (..))
 
-import Data.Aeson (ToJSON(..), object, (.=))
+import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Servant
+import Servant.API.WebSocket (WebSocketPending)
 import Servant.QueryParam.Record (RecordParam)
 import Servant.QueryParam.TypeLevel (DropPrefix, Eval, Exp)
 
 instance ToJSON BlockHeader where
-  toJSON (BlockHeader slotNo hash blockNo) = object
-    [ "slot" .= toJSON slotNo
-    , "block_hash" .= toJSON hash
-    , "block_no" .= toJSON blockNo
-    ]
+    toJSON (BlockHeader slotNo hash blockNo) =
+        object
+            [ "slot" .= toJSON slotNo
+            , "block_hash" .= toJSON hash
+            , "block_no" .= toJSON blockNo
+            ]
 
-instance ToJSON ExecutionEventPayload 
+instance ToJSON ExecutionEventPayload
 instance ToJSON EventPayload
 instance ToJSON Event
 
@@ -46,13 +49,26 @@ instance FromHttpApiData EventType where
 type EventFilterParams' = RecordParam DropPrefixExp EventFilterParams
 
 data EventRoutes route = EventRoutes
-    { allEvents :: route :- EventFilterParams' :> Get '[JSON] [Event]
-    , namedEvents :: route :- EventFilterParams' :> Capture "name_or_script_hash" Text :> Get '[JSON] [Event]
+    { allEvents ::
+        route :- EventFilterParams' :> Get '[JSON] [Event]
+    , namedEvents ::
+        route :- EventFilterParams' :> Capture "name_or_script_hash" Text :> Get '[JSON] [Event]
+    }
+    deriving (Generic)
+
+data EventsWebSockets route = EventsWebSockets
+    { allEventsWebSocket ::
+        route :- EventFilterParams' :> WebSocketPending
+    , namedEventsWebSocket ::
+        route :- EventFilterParams' :> Capture "name_or_script_hash" Text :> WebSocketPending
     }
     deriving (Generic)
 
 data SiteRoutes route = SiteRoutes
-    { events :: route :- "events" :> NamedRoutes EventRoutes
+    { events ::
+        route :- "events" :> NamedRoutes EventRoutes
+    , eventsWebSockets ::
+        route :- "events-ws" :> NamedRoutes EventsWebSockets
     }
     deriving (Generic)
 

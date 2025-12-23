@@ -1,22 +1,26 @@
 {- HLINT ignore "Use newtype instead of data" -}
+{- HLINT ignore "Use &&" -}
+{- HLINT ignore "Use ||" -}
 module PSR.Events.Interface where
 
-import GHC.Generics (Generic)
+import Control.Concurrent.STM.TChan (TChan)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
-import Control.Concurrent.STM.TChan (TChan)
+import GHC.Generics (Generic)
 
 import Cardano.Api (
     BlockHeader,
     ScriptHash,
     TxId,
  )
+import Cardano.Api qualified as C
+import Data.Maybe (isNothing)
 
 data EventType
     = Execution
     | Selection
     | Cancellation
-    deriving (Generic)
+    deriving (Eq, Generic)
 
 data EventPayload
     = ExecutionPayload ExecutionEventPayload
@@ -29,14 +33,16 @@ data Event = Event
     , blockHeader :: BlockHeader
     , createdAt :: UTCTime
     , payload :: EventPayload
-    } deriving (Generic)
+    }
+    deriving (Generic)
 
 data ExecutionEventPayload = ExecutionEventPayload
     { transactionHash :: TxId
     , scriptHash :: ScriptHash
     , scriptName :: Maybe Text
     , trace :: Text
-    } deriving (Generic)
+    }
+    deriving (Generic)
 
 data EventFilterParams = EventFilterParams
     { _eventFilterParam_type :: Maybe EventType
@@ -50,11 +56,40 @@ data EventFilterParams = EventFilterParams
     }
     deriving (Generic)
 
-data Events = Events 
+data Events = Events
     { addExecutionEvent :: BlockHeader -> ExecutionEventPayload -> IO ()
     , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
     , addSelectionEvent :: BlockHeader -> IO ()
-    , getEventsChannel :: TChan Event 
+    , getEventsChannel :: TChan Event
     , getEvents :: EventFilterParams -> IO [Event]
     }
 
+eventMatchesFilter :: EventFilterParams -> Event -> Bool
+eventMatchesFilter (EventFilterParams typ time_begin time_end slot_begin slot_end _limit _offset name_or_script_hash) event =
+    and
+        [ check (event.eventType ==) typ
+        , check (event.createdAt >=) time_begin
+        , check (event.createdAt <=) time_end
+        , check (slotNo >=) slot_begin
+        , check (slotNo <=) slot_end
+        , or
+            [ isNothing name_or_script_hash
+            , name_or_script_hash == mScriptName
+            , name_or_script_hash == mScriptHashText
+            ]
+        ]
+  where
+    check :: (a -> Bool) -> Maybe a -> Bool
+    check = maybe True
+
+    C.BlockHeader (fromIntegral . C.unSlotNo -> slotNo) _hash _blockno = event.blockHeader
+
+    mScriptName = case event.payload of
+        ExecutionPayload eep -> eep.scriptName
+        CancellationPayload{} -> Nothing
+        SelectionPayload -> Nothing
+
+    mScriptHashText = fmap C.textShow $ case event.payload of
+        ExecutionPayload eep -> Just eep.scriptHash
+        CancellationPayload hash -> Just hash
+        SelectionPayload -> Nothing

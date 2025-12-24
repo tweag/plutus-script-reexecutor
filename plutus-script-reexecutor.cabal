@@ -54,10 +54,10 @@ library
     PSR.Chain
     PSR.ConfigMap
     PSR.ContextBuilder
-    PSR.Events
-    PSR.Events.Interface
     PSR.Evaluation.Api
     PSR.Evaluation.Ledger
+    PSR.Events
+    PSR.Events.Interface
     PSR.HTTP
     PSR.HTTP.API
     PSR.HTTP.Server
@@ -132,12 +132,21 @@ executable dev-local
   import:         lang
   main-is:        Main.hs
   hs-source-dirs: dev-local
-  other-modules:  Populate
+  other-modules:
+    Export
+    Populate
+
   build-depends:
     , base
+    , bytestring
+    , cardano-api
     , directory
     , filepath
+    , onchain
     , optparse-applicative
+    , plutus-ledger-api
+    , plutus-tx
+    , serialise
     , streamly-core
     , streamly-process
 

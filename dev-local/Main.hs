@@ -9,6 +9,9 @@ module Main (main) where
 -------------------------------------------------------------------------------
 
 import Data.Function ((&))
+import Export (writePlutusScript)
+import Onchain.Debug qualified as Debug
+import Onchain.Release qualified as Release
 import Options.Applicative hiding (str)
 import Populate
 import Streamly.Console.Stdio qualified as Console
@@ -91,7 +94,10 @@ scripts:
 createConfig :: IO ()
 createConfig = do
     runCmd_ [str|mkdir -p #{env_LOCAL_CONFIG_DIR}|]
-    runCmd_ [str|cabal run export-scripts -- --local-config-dir #{env_LOCAL_CONFIG_DIR}|]
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy.plutus") Release.alwaysTrue
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator.plutus") Release.alwaysTrue
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy-debug.plutus") Debug.alwaysTrue
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator-debug.plutus") Debug.alwaysTrue
     createScriptsYaml
 
 --------------------------------------------------------------------------------

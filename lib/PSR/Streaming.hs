@@ -1,16 +1,11 @@
 module PSR.Streaming (
-    streamChainSyncEvents,
-    unshiftFst,
-    streamBlocks,
-    streamTransactionContext,
-    mainLoop,
+    LiveEvent (..),
+    liveEventStream,
 ) where
 
 --------------------------------------------------------------------------------
 -- Imports
 --------------------------------------------------------------------------------
-
-import PSR.Events.Interface (Events (..))
 
 import Cardano.Api qualified as C
 import Control.Concurrent (forkIO)
@@ -135,15 +130,24 @@ subscribeToChainSyncEvents conn points callback =
                 }
 
 --------------------------------------------------------------------------------
+-- LiveEvent
+--------------------------------------------------------------------------------
+
+data LiveEvent
+    = LeRollForward C.BlockHeader
+    | LeRollBackward C.ChainPoint
+    | LeReexecutedTransaction TransactionExecutionResult
+
+--------------------------------------------------------------------------------
 -- Streams
 --------------------------------------------------------------------------------
 
-traceChainSyncEvent :: Events -> ChainSyncEvent -> IO ()
-traceChainSyncEvent events = \case
-    RollForward (C.BlockInMode _ blk) _ -> do
-        let header = C.getBlockHeader blk
-        events.addSelectionEvent header
-    _ -> pure ()
+traceChainSyncEvent :: (LiveEvent -> IO ()) -> ChainSyncEvent -> IO ()
+traceChainSyncEvent cb cse = case cse of
+    RollForward (C.BlockInMode _ blk) _ ->
+        cb $ LeRollForward $ C.getBlockHeader blk
+    RollBackward cp _ ->
+        cb $ LeRollBackward cp
 
 streamChainSyncEvents ::
     -- | Connection Info
@@ -154,10 +158,14 @@ streamChainSyncEvents ::
 streamChainSyncEvents conn points =
     Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
 
-streamBlocks :: Events -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
-streamBlocks events CM.ConfigMap{..} points =
+streamBlocks ::
+    CM.ConfigMap ->
+    [C.ChainPoint] ->
+    (LiveEvent -> IO ()) ->
+    Stream IO (C.ChainPoint, Block)
+streamBlocks CM.ConfigMap{..} points cb =
     streamChainSyncEvents cmLocalNodeConn points
-        & Stream.trace (traceChainSyncEvent events)
+        & Stream.trace (traceChainSyncEvent cb)
         & fmap getEventBlock
         & Stream.postscanl unshiftFst
         -- TODO: Can we filter here to remove any block that doesn't reference
@@ -165,19 +173,23 @@ streamBlocks events CM.ConfigMap{..} points =
         & Stream.mapMaybe (\(a, b) -> (a,) <$> b)
 
 streamTransactionContext ::
-    CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
-streamTransactionContext cm ctx1@BlockContext{..} =
+    CM.ConfigMap ->
+    BlockContext era ->
+    (LiveEvent -> IO ()) ->
+    Stream IO (TransactionContext era)
+streamTransactionContext cm ctx1@BlockContext{..} cb =
     Stream.fromList ctxTransactions
         & Stream.mapMaybe (mkTransactionContext cm ctx1)
         & Stream.trace (pCompact . ctxTransactionExecutionResult)
+        & Stream.trace (cb . LeReexecutedTransaction . ctxTransactionExecutionResult)
 
 --------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
 
-mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
-mainLoop events cm@CM.ConfigMap{..} points =
-    streamBlocks events cm points
+mainLoop :: CM.ConfigMap -> [C.ChainPoint] -> (LiveEvent -> IO ()) -> IO ()
+mainLoop cm@CM.ConfigMap{..} points cb =
+    streamBlocks cm points cb
         & Stream.fold (Fold.drainMapM (uncurry consumeBlock))
   where
     consumeBlock previousChainPt (Block sbe txList) = do
@@ -185,5 +197,9 @@ mainLoop events cm@CM.ConfigMap{..} points =
             Nothing -> pure ()
             Just era -> do
                 ctx1 <- mkBlockContext cmLocalNodeConn previousChainPt era txList
-                streamTransactionContext cm ctx1
+                streamTransactionContext cm ctx1 cb
                     & Stream.fold Fold.drain
+
+liveEventStream :: CM.ConfigMap -> [C.ChainPoint] -> Stream IO LiveEvent
+liveEventStream cm points =
+    Stream.fromCallback (void . forkIO . mainLoop cm points)

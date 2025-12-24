@@ -17,6 +17,6 @@ newtype CompiledCodeLang lang a = CompiledCodeLang (CompiledCode a)
 -- Scripts
 --------------------------------------------------------------------------------
 
-{-# INLINEABLE alwaysTrue' #-}
-alwaysTrue' :: BuiltinData -> BuiltinUnit
-alwaysTrue' _ = trace "Script in debug mode" $ check True
+{-# INLINEABLE alwaysTrue #-}
+alwaysTrue :: BuiltinData -> BuiltinUnit
+alwaysTrue _ = trace "Script in debug mode" $ check True

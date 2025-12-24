@@ -11,6 +11,7 @@ build-type:    Simple
 library
   exposed-modules:
     Onchain.Debug
+    Onchain.Escrow
     Onchain.Release
     Onchain.Simple
 
@@ -21,11 +22,14 @@ library
     DataKinds
     ImportQualifiedPost
     ImportQualifiedPost
+    MultiParamTypeClasses
     NoImplicitPrelude
     NumericUnderscores
     OverloadedStrings
     OverloadedStrings
+    ScopedTypeVariables
     TemplateHaskell
+    ViewPatterns
 
   ghc-options:
     -Wall -Wno-missed-extra-shared-lib -fobject-code

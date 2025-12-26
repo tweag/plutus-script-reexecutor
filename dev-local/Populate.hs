@@ -11,6 +11,10 @@ module Populate (
     opt,
     drain,
     getPolicyId,
+    Wallet (..),
+    mkWallet,
+    fundWallet,
+    walletKeyHash,
     -- Globals
     env_LOCAL_CONFIG_DIR,
     env_POPULATE_WORK_DIR,
@@ -26,6 +30,7 @@ module Populate (
 -------------------------------------------------------------------------------
 
 import Control.Concurrent (threadDelay)
+import Control.Monad (void)
 import Data.Function ((&))
 import Data.Word (Word8)
 import Streamly.Data.Array (Array)
@@ -35,7 +40,8 @@ import Streamly.Data.Stream qualified as Stream
 import Streamly.System.Command qualified as Cmd
 import Streamly.Unicode.Stream qualified as Unicode
 import Streamly.Unicode.String (str)
-import System.FilePath ((</>))
+import System.FilePath ((<.>), (</>))
+import System.IO.Unsafe (unsafePerformIO)
 
 -------------------------------------------------------------------------------
 -- Utils
@@ -106,12 +112,22 @@ env_CARDANO_TESTNET_MAGIC = 42
 env_CARDANO_TESTNET_NUM_NODES :: Int
 env_CARDANO_TESTNET_NUM_NODES = 1
 
+env_FAUCET_WALLET_VKEY_FILE :: FilePath
+env_FAUCET_WALLET_VKEY_FILE = env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.vkey"
+
 env_FAUCET_WALLET_SKEY_FILE :: FilePath
 env_FAUCET_WALLET_SKEY_FILE = env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.skey"
 
-env_FAUCET_WALLET_ADDR :: IO String
+env_FAUCET_WALLET_ADDR :: String
 env_FAUCET_WALLET_ADDR =
-    readFile $ env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.addr"
+    unsafePerformIO $ readFile $ env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.addr"
+
+env_FAUCET_WALLET :: Wallet
+env_FAUCET_WALLET =
+    Wallet
+        env_FAUCET_WALLET_VKEY_FILE
+        env_FAUCET_WALLET_SKEY_FILE
+        env_FAUCET_WALLET_ADDR
 
 env_TX_UNSIGNED :: String
 env_TX_UNSIGNED = env_POPULATE_WORK_DIR </> "tx.unsigned"
@@ -160,13 +176,22 @@ getPolicyId scriptFile =
         & firstNonEmptyLine "getPolicyId"
 
 getAddress :: FilePath -> IO String
-getAddress scriptFile =
+getAddress vkeyFile =
+    runCmd
+        "cardano-cli conway address build"
+        [ optNetwork
+        , opt "payment-verification-key-file" vkeyFile
+        ]
+        & firstNonEmptyLine "getAddress"
+
+getScriptAddress :: FilePath -> IO String
+getScriptAddress scriptFile =
     runCmd
         "cardano-cli conway address build"
         [ optNetwork
         , opt "payment-script-file" scriptFile
         ]
-        & firstNonEmptyLine "getAddress"
+        & firstNonEmptyLine "getScriptAddress"
 
 buildTransaction :: [CmdOption] -> IO ()
 buildTransaction args =
@@ -209,6 +234,18 @@ getFirstUtxoAt walletAddr =
         & Cmd.pipeChunks [str|jq -r "keys[0]"|]
         & firstNonEmptyLine "getFirstUtxoAt"
 
+getUtxoListAt :: String -> IO [String]
+getUtxoListAt walletAddr =
+    runCmd
+        "cardano-cli conway query utxo"
+        [ optNetwork
+        , optSocketPath
+        , opt "address" walletAddr
+        ]
+        & Cmd.pipeChunks [str|jq -r "keys[]"|]
+        & nonEmptyLines
+        & Stream.fold Fold.toList
+
 nullUtxo :: String -> IO Bool
 nullUtxo utxo =
     runCmd
@@ -221,9 +258,80 @@ nullUtxo utxo =
         & firstNonEmptyLine "nullUtxo"
         & fmap (== "true")
 
--------------------------------------------------------------------------------
--- Main
--------------------------------------------------------------------------------
+keygen :: FilePath -> FilePath -> IO ()
+keygen vkey skey =
+    runCmd
+        "cardano-cli address key-gen"
+        [ opt "verification-key-file" vkey
+        , opt "signing-key-file" skey
+        ]
+        & drain
+
+data Wallet
+    = Wallet
+    { wVKeyFile :: FilePath
+    , wSKeyFile :: FilePath
+    , wAddress :: String
+    }
+
+mkWallet :: FilePath -> String -> IO Wallet
+mkWallet dir name = do
+    let vkey = dir </> name <.> "vkey"
+        skey = dir </> name <.> "skey"
+    keygen vkey skey
+    addr <- getAddress vkey
+    pure $ Wallet vkey skey addr
+
+walletKeyHash :: Wallet -> IO String
+walletKeyHash Wallet{..} =
+    runCmd
+        "cardano-cli address key-hash"
+        [ opt "payment-verification-key-file" wVKeyFile
+        ]
+        & firstNonEmptyLine "walletKeyHash"
+
+fetchWallet :: FilePath -> String -> IO Wallet
+fetchWallet dir name = do
+    let vkey = dir </> name <.> "vkey"
+        skey = dir </> name <.> "skey"
+    addr <- getAddress vkey
+    pure $ Wallet vkey skey addr
+
+--------------------------------------------------------------------------------
+-- Complex Utils
+--------------------------------------------------------------------------------
+
+transferAda :: Wallet -> Wallet -> Int -> IO String
+transferAda (Wallet _ inSign inAddr) (Wallet _ outSign outAddr) adaToTransfer = do
+    ensureBlankWorkDir
+    utxoList <- getUtxoListAt inAddr
+    let txInList = opt "tx-in" <$> utxoList
+        adaStr = show adaToTransfer
+    buildTransaction . (txInList ++) $
+        [ opt "tx-out" [str|#{outAddr} + #{adaStr}|]
+        , opt "change-address" inAddr
+        , opt "out-file" env_TX_UNSIGNED
+        ]
+    signTransaction
+        [ opt "signing-key-file" inSign
+        , opt "signing-key-file" outSign
+        , opt "tx-body-file" env_TX_UNSIGNED
+        , opt "out-file" env_TX_SIGNED
+        ]
+    txId <- getTransactionId env_TX_SIGNED
+    printVar "transferAda.txId" txId
+    submitTransaction
+        [ opt "tx-file" env_TX_SIGNED
+        ]
+    waitTillExists $ fstOutput txId
+    pure txId
+
+fundWallet :: Wallet -> Int -> IO String
+fundWallet = transferAda env_FAUCET_WALLET
+
+--------------------------------------------------------------------------------
+-- Mint, Spend, Burn loop
+--------------------------------------------------------------------------------
 
 data AppEnv = AppEnv
     { validatorAddress :: String
@@ -244,9 +352,9 @@ makeAppEnv = do
         numIterations = 10
 
     policyId <- getPolicyId policyFilePath
-    faucetAddr <- env_FAUCET_WALLET_ADDR
+    let faucetAddr = env_FAUCET_WALLET_ADDR
     tokenNameHex <- hexify tokenName
-    validatorAddress <- getAddress validatorFilePath
+    validatorAddress <- getScriptAddress validatorFilePath
     let assetClass = [str|#{policyId}.#{tokenNameHex}|]
 
     printVar "faucetAddr" faucetAddr
@@ -343,8 +451,8 @@ runBurn AppEnv{..} lockedUtxo = do
     burnTx <- getTransactionId env_TX_SIGNED
     printVar "burnTx" burnTx
 
-populate :: IO ()
-populate = do
+mintSpendBurnLoop :: IO ()
+mintSpendBurnLoop = do
     appEnv@AppEnv{numIterations} <- makeAppEnv
     let mint = fstOutput <$> runMint appEnv
         spend u = do
@@ -356,3 +464,26 @@ populate = do
     Stream.iterateM spend mint
         & Stream.take (numIterations + 1)
         & Stream.fold (Fold.rmapM (maybe (pure ()) burn) Fold.latest)
+
+--------------------------------------------------------------------------------
+-- Escrow
+--------------------------------------------------------------------------------
+
+escrow :: IO ()
+escrow = do
+    alice <- fetchWallet env_LOCAL_CONFIG_DIR "alice"
+    bob <- fetchWallet env_LOCAL_CONFIG_DIR "bob"
+    void $ fundWallet alice 2000000
+    void $ fundWallet bob 2000000
+    -- TODO: Add escrow logic
+
+--------------------------------------------------------------------------------
+-- Populate
+--------------------------------------------------------------------------------
+
+-- TODO: Add endpoints in the populate CLI command to invoke a certain type of
+-- population.
+populate :: IO ()
+populate = do
+    escrow
+    mintSpendBurnLoop

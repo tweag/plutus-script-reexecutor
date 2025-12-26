@@ -134,6 +134,7 @@ executable dev-local
     , plutus-ledger-api
     , streamly-core
     , streamly-process
+    , time
 
 -- benchmark bench
 --   import:         lang

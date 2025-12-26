@@ -3,8 +3,3 @@
 set -euo pipefail
 
 process-compose -f ./dev-local/process-compose.yaml -p 3030
-
-echo "Cleaning up. Please wait..."
-
-sleep 5
-cabal run dev-local -- clean

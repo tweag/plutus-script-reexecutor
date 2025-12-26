@@ -20,10 +20,16 @@ processes:
       success_threshold: 1
       failure_threshold: 60
 
-  populate:
-    command: "cabal run dev-local -- populate"
+  populate-mint-spend-burn-loop:
+    command: "cabal run dev-local -- populate mint-spend-burn-loop"
+    disabled: true
+
+  populate-escrow:
+    command: "cabal run dev-local -- populate escrow"
     disabled: true
 
   script-reexecutor:
     command: "cabal run plutus-script-reexecutor -- run --node-socket devnet-env/socket/node1/sock --testnet-magic 42 --script-yaml local-config/scripts.yaml"
-    disabled: true
+    depends_on:
+      cardano-testnet:
+        condition: process_healthy

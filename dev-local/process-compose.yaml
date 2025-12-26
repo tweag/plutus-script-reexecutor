@@ -20,8 +20,12 @@ processes:
       success_threshold: 1
       failure_threshold: 60
 
-  populate:
-    command: "cabal run dev-local -- populate"
+  populate-mint-spend-burn-loop:
+    command: "cabal run dev-local -- populate mint-spend-burn-loop"
+    disabled: true
+
+  populate-escrow:
+    command: "cabal run dev-local -- populate escrow"
     disabled: true
 
   script-reexecutor:

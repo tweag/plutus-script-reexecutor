@@ -27,12 +27,32 @@ import System.IO (BufferMode (..), hSetBuffering, stderr, stdout)
 -- CLI
 -------------------------------------------------------------------------------
 
+data PopulateCommand
+    = PCMintSpendBurnLoop
+    | PCEscrow
+
 data Command
     = StartLocalTestnet
     | Clean
-    | Populate
+    | Populate PopulateCommand
     | Setup
 
+populateCommandParser :: Parser PopulateCommand
+populateCommandParser =
+    hsubparser
+        ( command
+            "mint-spend-burn-loop"
+            ( info
+                (pure PCMintSpendBurnLoop)
+                (progDesc "Run the mint, spend, and burn loop scenario")
+            )
+            <> command
+                "escrow"
+                ( info
+                    (pure PCEscrow)
+                    (progDesc "Run the escrow scenario")
+                )
+        )
 commandParser :: Parser Command
 commandParser =
     hsubparser
@@ -51,7 +71,7 @@ commandParser =
             <> command
                 "populate"
                 ( info
-                    (pure Populate)
+                    (Populate <$> populateCommandParser)
                     (progDesc "Populate the local network with initial data")
                 )
             <> command
@@ -162,5 +182,6 @@ main = do
     case cmd of
         StartLocalTestnet -> startLocalTestnet
         Clean -> clean
-        Populate -> populate
+        Populate PCMintSpendBurnLoop -> mintSpendBurnLoop
+        Populate PCEscrow -> escrow
         Setup -> setup

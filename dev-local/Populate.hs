@@ -22,7 +22,8 @@ module Populate (
     env_CARDANO_TESTNET_MAGIC,
     env_CARDANO_TESTNET_NUM_NODES,
     -- Main
-    populate,
+    mintSpendBurnLoop,
+    escrow,
 ) where
 
 -------------------------------------------------------------------------------
@@ -476,14 +477,3 @@ escrow = do
     void $ fundWallet alice 2000000
     void $ fundWallet bob 2000000
     -- TODO: Add escrow logic
-
---------------------------------------------------------------------------------
--- Populate
---------------------------------------------------------------------------------
-
--- TODO: Add endpoints in the populate CLI command to invoke a certain type of
--- population.
-populate :: IO ()
-populate = do
-    escrow
-    mintSpendBurnLoop

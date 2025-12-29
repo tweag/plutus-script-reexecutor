@@ -13,10 +13,10 @@ import Cardano.Api.ProtocolParameters
 import Cardano.Ledger.Alonzo.Core qualified as Ledger
 import Cardano.Ledger.Alonzo.Scripts qualified as Alonzo
 import Cardano.Ledger.Api qualified as L
-import Cardano.Ledger.Plutus.Language qualified as Plutus
+import Cardano.Ledger.Plutus qualified as Plutus
 
 import Cardano.Api hiding (evaluateTransactionExecutionUnitsShelley)
-import Data.Bifunctor (bimap, second)
+import Data.Bifunctor (Bifunctor (first))
 import Data.ByteString.Short (ShortByteString)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -84,12 +84,12 @@ evaluateTransactionExecutionUnitsShelley ssi sbe systemstart epochInfo (LedgerPr
         AlonzoEraOnwards era ->
         Map
             (L.PlutusPurpose L.AsIx (ShelleyLedgerEra era))
-            (Either (L.TransactionScriptFailure (ShelleyLedgerEra era)) (EvalTxExecutionUnitsLog, Alonzo.ExUnits)) ->
-        Map ScriptWitnessIndex (Either ScriptExecutionError (EvalTxExecutionUnitsLog, ExecutionUnits))
+            (Either (L.TransactionScriptFailure (ShelleyLedgerEra era)) (Plutus.PlutusWithContext, EvalTxExecutionUnitsLog, Alonzo.ExUnits)) ->
+        Map ScriptWitnessIndex (Either ScriptExecutionError (Plutus.PlutusWithContext, EvalTxExecutionUnitsLog, Alonzo.ExUnits))
     fromLedgerScriptExUnitsMap aOnwards exmap =
         fromList
             [ ( toScriptIndex aOnwards rdmrptr
-              , bimap (fromAlonzoScriptExecutionError aOnwards) (second fromAlonzoExUnits) exunitsOrFailure
+              , first (fromAlonzoScriptExecutionError aOnwards) exunitsOrFailure
               )
             | (rdmrptr, exunitsOrFailure) <- toList exmap
             ]

@@ -22,7 +22,6 @@ import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
@@ -49,7 +48,8 @@ proveAlonzoEraOnwards = \case
 -- Context1 is essentially acts like the global environment.
 data BlockContext era where
     BlockContext ::
-        { ctxPrevChainPoint :: C.ChainPoint
+        { ctxBlockHeader :: C.BlockHeader
+        , ctxPrevChainPoint :: C.ChainPoint
         , -- NOTE: Use C.convert to get C.ShelleyBasedEra
           ctxAlonzoEraOnwards :: C.AlonzoEraOnwards era
         , ctxTransactions :: [C.Tx era]
@@ -63,15 +63,16 @@ data BlockContext era where
         BlockContext era
 
 mkBlockContext ::
+    C.BlockHeader ->
     C.LocalNodeConnectInfo ->
     C.ChainPoint ->
     C.AlonzoEraOnwards era ->
     [C.Tx era] ->
     IO (BlockContext era)
-mkBlockContext conn prevCp era txs = do
+mkBlockContext bh conn prevCp era txs = do
     let sbe = C.convert era
         query =
-            BlockContext prevCp era txs
+            BlockContext bh prevCp era txs
                 <$> utxoMapQuery sbe txs
                 <*> pParamsQuery sbe
                 <*> eraHistoryQuery
@@ -85,7 +86,8 @@ mkBlockContext conn prevCp era txs = do
 
 data TransactionContext era where
     TransactionContext ::
-        { ctxTransaction :: C.Tx era
+        { ctxBlockHeader :: C.BlockHeader
+        , ctxTransaction :: C.Tx era
         , ctxRelevantScripts :: Map.Map C.ScriptHash ResolvedScript
         , ctxTransactionExecutionResult :: TransactionExecutionResult
         } ->
@@ -124,7 +126,7 @@ mkTransactionContext ::
 mkTransactionContext cm bc tx = do
     nei <- getNonEmptyIntersection cm bc tx
     let eres = evaluateTransaction bc tx nei
-    pure $ TransactionContext tx nei eres
+    pure $ TransactionContext bc.ctxBlockHeader tx nei eres
 
 --------------------------------------------------------------------------------
 -- Evaluation
@@ -145,9 +147,7 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
   where
     runEvaluation ::
         (L.Script (C.ShelleyLedgerEra era) ~ Alonzo.AlonzoScript (C.ShelleyLedgerEra era)) =>
-        Map
-            C.ScriptWitnessIndex
-            (Either C.ScriptExecutionError ([Text], C.ExecutionUnits))
+        TransactionExecutionResult
     runEvaluation =
         evaluateTransactionExecutionUnitsShelley
             subMap

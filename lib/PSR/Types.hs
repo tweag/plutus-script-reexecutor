@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module PSR.Types (
     ChainSyncEvent (..),
     ChainSyncEventException (..),
@@ -5,6 +7,7 @@ module PSR.Types (
     ScriptSubtitutionInfo,
     TransactionExecutionResult,
     pCompact,
+    RedeemerReportWithLogs,
 ) where
 
 --------------------------------------------------------------------------------
@@ -12,7 +15,9 @@ module PSR.Types (
 --------------------------------------------------------------------------------
 
 import Cardano.Api qualified as C
+import Cardano.Ledger.Api qualified as L
 import Cardano.Ledger.Conway.Scripts qualified as L
+import Cardano.Ledger.Plutus qualified as L
 import Control.Exception (Exception)
 import Data.Map (Map)
 import Data.Text (Text)
@@ -33,8 +38,9 @@ data ChainSyncEventException = NoIntersectionFound
     deriving anyclass (Exception)
 
 data Block where
-    Block :: C.ShelleyBasedEra era -> [C.Tx era] -> Block
+    Block :: C.BlockHeader -> C.ShelleyBasedEra era -> [C.Tx era] -> Block
 
+deriving instance Show C.BlockHeader
 deriving instance Show Block
 
 type ScriptSubtitutionInfo era = Map C.ScriptHash (L.AlonzoScript era)
@@ -42,7 +48,10 @@ type ScriptSubtitutionInfo era = Map C.ScriptHash (L.AlonzoScript era)
 type TransactionExecutionResult =
     Map
         C.ScriptWitnessIndex
-        (Either C.ScriptExecutionError ([Text], C.ExecutionUnits))
+        (Either C.ScriptExecutionError (L.PlutusWithContext, [Text], L.ExUnits))
+
+type RedeemerReportWithLogs era =
+    Map (L.PlutusPurpose L.AsIx era) (Either (L.TransactionScriptFailure era) (L.PlutusWithContext, [Text], L.ExUnits))
 
 --------------------------------------------------------------------------------
 -- Debugging Utils

@@ -3,6 +3,7 @@
 {- HLINT ignore "Use ||" -}
 module PSR.Events.Interface where
 
+import Cardano.Ledger.Plutus (ExUnits)
 import Control.Concurrent.STM.TChan (TChan)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
@@ -20,7 +21,7 @@ data EventType
     = Execution
     | Selection
     | Cancellation
-    deriving (Eq, Generic)
+    deriving (Eq, Show, Generic)
 
 data EventPayload
     = ExecutionPayload ExecutionEventPayload
@@ -36,11 +37,15 @@ data Event = Event
     }
     deriving (Generic)
 
+newtype TraceLogs = TraceLogs {getTraceLogs :: [Text]} deriving (Eq, Show, Generic)
+
 data ExecutionEventPayload = ExecutionEventPayload
     { transactionHash :: TxId
     , scriptHash :: ScriptHash
     , scriptName :: Maybe Text
-    , trace :: Text
+    , exUnits :: ExUnits
+    , traceLogs :: TraceLogs
+    , evalError :: Maybe Text
     }
     deriving (Generic)
 

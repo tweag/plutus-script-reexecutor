@@ -114,7 +114,7 @@ mkLocalNodeConnectInfo networkId socketPath =
 getBlock :: C.BlockInMode -> Maybe Block
 getBlock (C.BlockInMode cera blk) = do
     era <- runIdentity (C.requireShelleyBasedEra cera)
-    pure $ Block era $ C.getBlockTxs blk
+    pure $ Block (C.getBlockHeader blk) era $ C.getBlockTxs blk
 
 getEventBlock :: ChainSyncEvent -> (C.ChainPoint, Maybe Block)
 getEventBlock (RollForward bim cp) = (C.chainTipToChainPoint cp, getBlock bim)

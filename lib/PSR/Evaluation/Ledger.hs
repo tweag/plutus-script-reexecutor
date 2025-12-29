@@ -13,7 +13,6 @@ import Cardano.Ledger.Alonzo.Plutus.Evaluate (TransactionScriptFailure (..))
 import Cardano.Ledger.Alonzo.Scripts (lookupPlutusScript, plutusScriptLanguage, toAsItem, toAsIx)
 import Cardano.Ledger.Alonzo.TxWits (unRedeemersL)
 import Cardano.Ledger.Alonzo.UTxO (AlonzoScriptsNeeded (..))
-import Cardano.Ledger.Api (RedeemerReportWithLogs)
 import Cardano.Ledger.Plutus.CostModels (costModelsValid)
 import Cardano.Ledger.Plutus.Evaluate (
     evaluatePlutusWithContext,
@@ -27,7 +26,7 @@ import Data.Map.Strict qualified as Map
 import Data.MapExtras (fromElems)
 import Data.Text (Text)
 import Lens.Micro
-import PSR.Types (ScriptSubtitutionInfo)
+import PSR.Types (RedeemerReportWithLogs, ScriptSubtitutionInfo)
 import PlutusLedgerApi.Common qualified as P
 
 import Cardano.Api qualified as C
@@ -58,14 +57,13 @@ evalTxExUnitsWithLogs ::
     EpochInfo (Either Text) ->
     -- | The start time of the given block chain.
     SystemStart ->
-    {- | We return a map from redeemer pointers to either a failure or a sufficient
-    execution budget with logs of the script.  Otherwise, we return a 'TranslationError'
-    manifesting from failed attempts to construct a valid execution context for the
-    given transaction.
-
-    Unlike `evalTxExUnits`, this function also returns evaluation logs, useful for
-    debugging.
-    -}
+    -- | We return a map from redeemer pointers to either a failure or a sufficient
+    --     execution budget with logs of the script.  Otherwise, we return a 'TranslationError'
+    --     manifesting from failed attempts to construct a valid execution context for the
+    --     given transaction.
+    --
+    --     Unlike `evalTxExUnits`, this function also returns evaluation logs, useful for
+    --     debugging.
     RedeemerReportWithLogs era
 evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey findAndCount rdmrs
   where
@@ -128,4 +126,4 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
             (logs, Left err) -> Left $ ValidationFailure exUnits err logs pwc
             (logs, Right exBudget) ->
                 note (IncompatibleBudget exBudget) $
-                    (,) logs <$> exBudgetToExUnits exBudget
+                    (pwc,logs,) <$> exBudgetToExUnits exBudget

@@ -2,9 +2,6 @@
 
 module PSR.Storage.SQLite where
 
-import PSR.Events.Interface (Event (..), EventFilterParams (..), EventPayload (..), EventType (..), ExecutionEventPayload (..))
-import PSR.Storage.Interface
-
 import Cardano.Api (
     BlockHeader (..),
     BlockNo (..),
@@ -16,7 +13,12 @@ import Cardano.Api (
     serialiseToRawBytes,
  )
 import Cardano.Api qualified as C
+import Cardano.Ledger.Plutus (ExUnits)
+import PSR.Events.Interface
+import PSR.Storage.Interface
 
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Text qualified as Aeson
 import Data.Functor ((<&>))
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
@@ -25,6 +27,7 @@ import Data.Time.Clock (UTCTime)
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.ToField
+import GHC.Generics (Generic)
 
 withSqliteStorage :: FilePath -> (Storage -> IO ()) -> IO ()
 withSqliteStorage dbPath act =
@@ -53,10 +56,22 @@ mkStorage conn = do
     addExecutionEvent blockHeader ExecutionEventPayload{..} = do
         withTransaction conn $ do
             blockId <- getOrCreateBlockId blockHeader
-            execute
+            let
+                params =
+                    [ ":block_id" := blockId
+                    , ":transaction_hash" := transactionHash
+                    , ":script_hash" := scriptHash
+                    , ":script_name" := scriptName
+                    , ":trace_logs" := traceLogs
+                    , ":ex_units" := exUnits
+                    , ":eval_error" := evalError
+                    ]
+            executeNamed
                 conn
-                "INSERT INTO execution_event (block_id, transaction_hash, script_hash, name, trace) values (?, ?, ?, ?, ?)"
-                (blockId, transactionHash, scriptHash, scriptName, trace)
+                "INSERT INTO execution_event \
+                \ (block_id, transaction_hash, script_hash, name, trace_logs, ex_units, eval_error) \
+                \ values (:block_id, :transaction_hash, :script_hash, :script_name, :trace_logs, :ex_units, :eval_error)"
+                params
 
     addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
     addCancellationEvent blockHeader scriptHash =
@@ -86,36 +101,37 @@ mkStorage conn = do
                      in min limit 1000
                 offsetParameter = fromMaybe 0 _eventFilterParam_offset
 
-                mkNamedParam q n v = (q, n := v)
+                mkNamedParam q n v = (" (" <> q <> ") " :: Text, n := v)
                 paramsWithQueries =
                     catMaybes
-                        [ fmap
-                            ( mkNamedParam
-                                " (e.name = :name_or_hash or e.script_hash = :name_or_hash or c.script_hash = :name_or_hash) "
+                        [ _eventFilterParam_type
+                            <&> mkNamedParam
+                                "(CASE \
+                                \ WHEN :event_type = 'execution' THEN e.block_id \
+                                \ WHEN :event_type = 'cancellation' THEN c.block_id \
+                                \ WHEN :event_type = 'selection' THEN s.block_id \
+                                \ END) IS NOT NULL"
+                                ":event_type"
+                        , _eventFilterParam_name_or_script_hash
+                            <&> mkNamedParam
+                                "e.name = :name_or_hash or e.script_hash = :name_or_hash or c.script_hash = :name_or_hash"
                                 ":name_or_hash"
-                                . toField
-                            )
-                            _eventFilterParam_name_or_script_hash
-                        , fmap
-                            (mkNamedParam " b.slot_no >= :slot_begin " ":slot_begin" . toField)
-                            _eventFilterParam_slot_begin
-                        , fmap
-                            (mkNamedParam " b.slot_no <= :slot_end " ":slot_end" . toField)
-                            _eventFilterParam_slot_end
-                        , fmap
-                            ( mkNamedParam
-                                " (e.created_at >= :time_begin or c.created_at >= :time_begin or s.created_at >= :time_begin) "
+                        , _eventFilterParam_slot_begin
+                            <&> mkNamedParam
+                                "b.slot_no >= :slot_begin"
+                                ":slot_begin"
+                        , _eventFilterParam_slot_end
+                            <&> mkNamedParam
+                                "b.slot_no <= :slot_end"
+                                ":slot_end"
+                        , _eventFilterParam_time_begin
+                            <&> mkNamedParam
+                                "e.created_at >= :time_begin or c.created_at >= :time_begin or s.created_at >= :time_begin"
                                 ":time_begin"
-                                . toField
-                            )
-                            _eventFilterParam_time_begin
-                        , fmap
-                            ( mkNamedParam
-                                " (e.created_at <= :time_end or c.created_at <= :time_end or s.created_at <= :time_end) "
+                        , _eventFilterParam_time_end
+                            <&> mkNamedParam
+                                "e.created_at <= :time_end or c.created_at <= :time_end or s.created_at <= :time_end"
                                 ":time_end"
-                                . toField
-                            )
-                            _eventFilterParam_time_end
                         ]
 
                 paramsQuery :: Query
@@ -126,7 +142,7 @@ mkStorage conn = do
 
                 eventsQuery :: Query
                 eventsQuery =
-                    "SELECT b.block_no, b.slot_no, b.hash, \
+                    "SELECT b.slot_no, b.hash, b.block_no, \
                     \ CASE \
                     \   WHEN e.block_id THEN 'execution' \
                     \   WHEN c.block_id THEN 'cancellation' \
@@ -136,7 +152,9 @@ mkStorage conn = do
                     \ COALESCE(e.script_hash, c.script_hash), \
                     \ e.transaction_hash, \
                     \ e.name, \
-                    \ e.trace \
+                    \ json(e.trace_logs), \
+                    \ json(e.ex_units), \
+                    \ e.eval_error \
                     \ FROM block b \
                     \ LEFT JOIN execution_event e ON e.block_id = b.block_id \
                     \ LEFT JOIN cancellation_event c ON c.block_id = b.block_id \
@@ -148,28 +166,29 @@ mkStorage conn = do
 
                 parameters = map snd paramsWithQueries <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
-            rows :: [(BlockNo, SlotNo, Hash BlockHeader, EventType, UTCTime, Maybe ScriptHash, Maybe TxId, Maybe Text, Maybe Text)] <-
+            rows :: [BlockHeader :. (EventType, UTCTime, Maybe ScriptHash, Maybe TxId, Maybe Text, Maybe TraceLogs, Maybe ExUnits, Maybe Text)] <-
                 queryNamed conn eventsQuery parameters
 
             pure $
                 rows <&> \case
-                    (blockNo, slotNo, hash, eventType, createdAt, mScriptHash, mTransactionHash, scriptName, mTrace) ->
+                    (blockHeader :. (eventType, createdAt, mScriptHash, mTransactionHash, scriptName, mTraceLogs, mExUnits, evalError)) ->
                         let
-                            blockHeader = BlockHeader slotNo hash blockNo
                             payload = case eventType of
                                 Execution ->
-                                    case (mScriptHash, mTransactionHash, mTrace) of
-                                        (Just scriptHash, Just transactionHash, Just trace) ->
+                                    case (mScriptHash, mTransactionHash, mTraceLogs, mExUnits) of
+                                        (Just scriptHash, Just transactionHash, Just traceLogs, Just exUnits) ->
                                             ExecutionPayload $
                                                 ExecutionEventPayload
                                                     { transactionHash
                                                     , scriptHash
                                                     , scriptName
-                                                    , trace
+                                                    , traceLogs
+                                                    , exUnits
+                                                    , evalError
                                                     }
                                         _ ->
                                             -- TODO: handle the error properly
-                                            error "The execution event should have a script hash, a transaction hash and a trace"
+                                            error "The execution event should have a script hash, a transaction hash, a trace, and execution units"
                                 Cancellation ->
                                     case mScriptHash of
                                         Just sh -> CancellationPayload sh
@@ -198,7 +217,9 @@ initSchema conn = withTransaction conn $ do
         \ transaction_hash BLOB NOT NULL, \
         \ script_hash BLOB NOT NULL, \
         \ name TEXT, \
-        \ trace TEXT, \
+        \ trace_logs TEXT NOT NULL, \
+        \ ex_units TEXT NOT NULL, \
+        \ eval_error TEXT, \
         \ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP )"
 
     execute_
@@ -214,7 +235,16 @@ initSchema conn = withTransaction conn $ do
         \ block_id INTEGER NOT NULL REFERENCES block(block_id), \
         \ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP )"
 
--- instances --
+-- instances
+
+deriving instance Generic BlockHeader
+deriving instance Show BlockHeader
+deriving instance FromRow BlockHeader
+
+instance ToField EventType where
+    toField Execution = toField ("execution" :: Text)
+    toField Selection = toField ("selection" :: Text)
+    toField Cancellation = toField ("cancellation" :: Text)
 
 instance ToField BlockNo where
     toField (BlockNo blockNo) = toField blockNo
@@ -269,3 +299,26 @@ instance FromField EventType where
             "cancellation" -> pure Cancellation
             "selection" -> pure Selection
             _ -> returnError ConversionFailed f "Failed to parse event type"
+
+deriving newtype instance Aeson.ToJSON TraceLogs
+deriving newtype instance Aeson.FromJSON TraceLogs
+
+instance ToField TraceLogs where
+    toField traceLogs = toField $ Aeson.encodeToLazyText traceLogs
+
+instance FromField TraceLogs where
+    fromField f = do
+        fromField f >>= \s ->
+            case Aeson.eitherDecodeStrictText s of
+                Right logs -> pure $ TraceLogs logs
+                Left err -> returnError ConversionFailed f $ "Failed to parse trace logs: " <> err
+
+instance ToField ExUnits where
+    toField exUnits = toField $ Aeson.encodeToLazyText exUnits
+
+instance FromField ExUnits where
+    fromField f = do
+        fromField f >>= \s ->
+            case Aeson.eitherDecodeStrictText s of
+                Right exUnits -> pure exUnits
+                Left err -> returnError ConversionFailed f $ "Failed to parse execution units:" <> err

@@ -10,13 +10,17 @@ module PSR.Streaming (
 -- Imports
 --------------------------------------------------------------------------------
 
-import PSR.Events.Interface (Events (..))
+import PSR.Events.Interface (Events (..), ExecutionEventPayload (..), TraceLogs (..))
 
 import Cardano.Api qualified as C
+import Cardano.Api.Pretty (Pretty (pretty), docToText)
+import Cardano.Ledger.Plutus (PlutusWithContext (..))
 import Control.Concurrent (forkIO)
 import Control.Exception (throw)
 import Control.Monad (void)
+import Data.Foldable (forM_)
 import Data.Function ((&))
+import Data.Map qualified as Map
 import Ouroboros.Network.Protocol.ChainSync.Client (
     ClientStIdle (..),
     ClientStIntersect (..),
@@ -145,6 +149,25 @@ traceChainSyncEvent events = \case
         events.addSelectionEvent header
     _ -> pure ()
 
+traceTransactionExecutionResult :: Events -> TransactionContext era -> IO ()
+traceTransactionExecutionResult events tc =
+    forM_ (Map.elems tc.ctxTransactionExecutionResult) $ \case
+        Right (pwc, logs, exUnits) -> addEvent pwc logs exUnits Nothing
+        Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) -> addEvent pwc logs exUnits (Just evalErr)
+        _ -> pure ()
+  where
+    addEvent PlutusWithContext{..} logs exUnits evalError' = do
+        let scriptHash = C.ScriptHash pwcScriptHash
+        events.addExecutionEvent tc.ctxBlockHeader $
+            ExecutionEventPayload
+                { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
+                , scriptHash
+                , exUnits
+                , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
+                , traceLogs = TraceLogs logs
+                , evalError = docToText . pretty <$> evalError'
+                }
+
 streamChainSyncEvents ::
     -- | Connection Info
     C.LocalNodeConnectInfo ->
@@ -169,7 +192,8 @@ streamTransactionContext ::
 streamTransactionContext cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
         & Stream.mapMaybe (mkTransactionContext cm ctx1)
-        & Stream.trace (pCompact . ctxTransactionExecutionResult)
+
+--        & Stream.trace (pCompact . ctxTransactionExecutionResult)
 
 --------------------------------------------------------------------------------
 -- Main
@@ -180,10 +204,11 @@ mainLoop events cm@CM.ConfigMap{..} points =
     streamBlocks events cm points
         & Stream.fold (Fold.drainMapM (uncurry consumeBlock))
   where
-    consumeBlock previousChainPt (Block sbe txList) = do
+    consumeBlock previousChainPt (Block bh sbe txList) = do
         case proveAlonzoEraOnwards sbe of
             Nothing -> pure ()
             Just era -> do
-                ctx1 <- mkBlockContext cmLocalNodeConn previousChainPt era txList
+                ctx1 <- mkBlockContext bh cmLocalNodeConn previousChainPt era txList
                 streamTransactionContext cm ctx1
+                    & Stream.trace (traceTransactionExecutionResult events)
                     & Stream.fold Fold.drain

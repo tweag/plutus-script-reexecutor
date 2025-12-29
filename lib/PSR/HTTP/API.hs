@@ -10,7 +10,7 @@ module PSR.HTTP.API (
     siteApi,
 ) where
 
-import PSR.Events.Interface (Event (..), EventFilterParams (..), EventPayload (..), EventType (..), ExecutionEventPayload (..))
+import PSR.Events.Interface
 
 import Cardano.Api (BlockHeader (..))
 
@@ -30,6 +30,7 @@ instance ToJSON BlockHeader where
             , "block_no" .= toJSON blockNo
             ]
 
+deriving newtype instance ToJSON TraceLogs
 instance ToJSON ExecutionEventPayload
 instance ToJSON EventPayload
 instance ToJSON Event

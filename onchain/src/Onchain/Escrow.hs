@@ -5,7 +5,7 @@ module Onchain.Escrow where
 --------------------------------------------------------------------------------
 
 import PlutusLedgerApi.V1 (contains)
-import PlutusLedgerApi.V2
+import PlutusLedgerApi.V3
 import PlutusTx
 import PlutusTx.List
 import PlutusTx.Prelude
@@ -26,12 +26,15 @@ data EscrowInput = Claim | Cancel
 PlutusTx.unstableMakeIsData ''EscrowInput
 
 {-# INLINEABLE validator #-}
-validator :: EscrowParams -> EscrowInput -> ScriptContext -> Bool
-validator params action ctx =
+validator :: EscrowParams -> ScriptContext -> Bool
+validator params ctx =
     case action of
         Claim -> validateClaim
         Cancel -> validateCancel
   where
+    action :: EscrowInput
+    action = unsafeFromBuiltinData (getRedeemer $ scriptContextRedeemer ctx)
+
     elseTrace = flip traceIfFalse
 
     info :: TxInfo
@@ -61,10 +64,6 @@ validator params action ctx =
             ]
 
 {-# INLINEABLE validatorUntyped #-}
-validatorUntyped :: EscrowParams -> BuiltinData -> BuiltinData -> BuiltinData -> BuiltinUnit
-validatorUntyped params _ r ctx =
-    check
-        $ validator
-            params
-            (unsafeFromBuiltinData r)
-            (unsafeFromBuiltinData ctx)
+validatorUntyped :: EscrowParams -> BuiltinData -> BuiltinUnit
+validatorUntyped params ctx =
+    check $ validator params (unsafeFromBuiltinData ctx)

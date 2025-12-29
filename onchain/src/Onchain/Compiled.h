@@ -24,7 +24,7 @@ alwaysTrue = CompiledCodeLang $$(PlutusTx.compile [|| Simple.alwaysTrue ||])
 
 escrowValidator ::
     Escrow.EscrowParams ->
-    CompiledCodeLang PlutusScriptV2 (BuiltinData -> BuiltinData -> BuiltinData -> BuiltinUnit)
+    CompiledCodeLang PlutusScriptV3 (BuiltinData -> BuiltinUnit)
 escrowValidator params =
     CompiledCodeLang
         ($$(PlutusTx.compile [|| Escrow.validatorUntyped ||]) `unsafeApplyCode` liftCodeDef params)

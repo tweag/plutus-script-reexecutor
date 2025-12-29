@@ -134,7 +134,8 @@ createConfig = do
     alicePkh <- fromString <$> walletKeyHash alice
     bobPkh <- fromString <$> walletKeyHash bob
     now <- getPOSIXTime
-    let deadline = floor $ (now + 30) * 1000
+    let deadlineInSecondsFromNow = 60
+        deadline = floor $ (now + deadlineInSecondsFromNow) * 1000
     let escrowParams = EscrowParams alicePkh bobPkh deadline
     writePlutusScript
         (env_LOCAL_CONFIG_DIR </> "escrow.plutus")

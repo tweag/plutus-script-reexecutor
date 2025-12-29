@@ -302,8 +302,8 @@ fetchWallet dir name = do
 -- Complex Utils
 --------------------------------------------------------------------------------
 
-transferAda :: Wallet -> Wallet -> Int -> IO String
-transferAda (Wallet _ inSign inAddr) (Wallet _ outSign outAddr) adaToTransfer = do
+transferAda :: Wallet -> String -> Int -> IO String
+transferAda (Wallet _ inSign inAddr) outAddr adaToTransfer = do
     ensureBlankWorkDir
     utxoList <- getUtxoListAt inAddr
     let txInList = opt "tx-in" <$> utxoList
@@ -315,7 +315,6 @@ transferAda (Wallet _ inSign inAddr) (Wallet _ outSign outAddr) adaToTransfer = 
         ]
     signTransaction
         [ opt "signing-key-file" inSign
-        , opt "signing-key-file" outSign
         , opt "tx-body-file" env_TX_UNSIGNED
         , opt "out-file" env_TX_SIGNED
         ]
@@ -328,7 +327,7 @@ transferAda (Wallet _ inSign inAddr) (Wallet _ outSign outAddr) adaToTransfer = 
     pure txId
 
 fundWallet :: Wallet -> Int -> IO String
-fundWallet = transferAda env_FAUCET_WALLET
+fundWallet w = transferAda env_FAUCET_WALLET (wAddress w)
 
 --------------------------------------------------------------------------------
 -- Mint, Spend, Burn loop
@@ -470,10 +469,68 @@ mintSpendBurnLoop = do
 -- Escrow
 --------------------------------------------------------------------------------
 
+-- NOTE: This should be part of the EscrowConfig
+
+data EscrowConfig = EscrowConfig
+    { ecAmount :: Int
+    , ecValidator :: FilePath
+    }
+
+escrowDeposit :: EscrowConfig -> Wallet -> IO String
+escrowDeposit EscrowConfig{..} depositor = do
+    printStep "Deposit"
+    escrowScript <- getScriptAddress ecValidator
+    fstOutput <$> transferAda depositor escrowScript ecAmount
+
+escrowClaim :: EscrowConfig -> String -> Wallet -> IO ()
+escrowClaim EscrowConfig{..} lockedUtxo Wallet{..} = do
+    printStep "Claim"
+    -- NOTE: We use the faucet to balance the transaction.
+    let ecAmountStr = show $ ecAmount
+    faucetUtxo <- getFirstUtxoAt env_FAUCET_WALLET_ADDR
+    buildTransaction
+        [ -- NOTE: The order of the arguments is very important.
+          -- Escrow script args:
+          opt "tx-in" lockedUtxo
+        , opt "tx-in-script-file" ecValidator
+        , -- NOTE: The 0th constructor is Claim
+          opt "tx-in-redeemer-value" ("{\"constructor\":0, \"fields\":[]}" :: String)
+        , -- Other args:
+          opt "tx-in" faucetUtxo
+        , -- TODO: Create a custom collateral instead of using the faucet
+          -- UTxO. NOTE: Using the entire faucet as Utxo will render the faucet
+          -- useless if the script fails.
+          opt "tx-in-collateral" faucetUtxo
+        , opt "tx-out" [str|#{wAddress} + #{ecAmountStr}|]
+        , opt "change-address" env_FAUCET_WALLET_ADDR
+        , opt "out-file" env_TX_UNSIGNED
+        ]
+    signTransaction
+        [ opt "signing-key-file" wSKeyFile
+        , opt "signing-key-file" env_FAUCET_WALLET_SKEY_FILE
+        , opt "tx-body-file" env_TX_UNSIGNED
+        , opt "out-file" env_TX_SIGNED
+        ]
+    txId <- getTransactionId env_TX_SIGNED
+    printVar "escrowClaim.txId" txId
+    submitTransaction
+        [ opt "tx-file" env_TX_SIGNED
+        ]
+    waitTillExists $ fstOutput txId
+
+escrowCancel :: String -> Wallet -> IO ()
+escrowCancel _lockedUtxo _depositor = error "Unimplemented"
+
+-- NOTE: THIS DOES NOT WORK.
+-- TODO: Debug and fix this workflow
 escrow :: IO ()
 escrow = do
+    printStep "Begin"
     alice <- fetchWallet env_LOCAL_CONFIG_DIR "alice"
     bob <- fetchWallet env_LOCAL_CONFIG_DIR "bob"
-    void $ fundWallet alice 2000000
-    void $ fundWallet bob 2000000
-    -- TODO: Add escrow logic
+    void $ fundWallet alice 20000000
+    void $ fundWallet bob 20000000
+    let conf = EscrowConfig 1000000 (env_LOCAL_CONFIG_DIR </> "escrow.plutus")
+    lockedUtxo <- escrowDeposit conf alice
+    escrowClaim conf lockedUtxo bob
+    printStep "End"

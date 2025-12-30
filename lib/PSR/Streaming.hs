@@ -10,11 +10,17 @@ module PSR.Streaming (
 -- Imports
 --------------------------------------------------------------------------------
 
-import PSR.Events.Interface (Events (..), ExecutionEventPayload (..), TraceLogs (..))
+import PSR.Events.Interface (EvalError (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), TraceLogs (..))
 
 import Cardano.Api qualified as C
 import Cardano.Api.Pretty (Pretty (pretty), docToText)
-import Cardano.Ledger.Plutus (PlutusWithContext (..))
+import Cardano.Ledger.Binary (getVersion64)
+import Cardano.Ledger.Plutus (
+    PlutusArgs,
+    PlutusWithContext (..),
+    SLanguage (..),
+    isLanguage,
+ )
 import Control.Concurrent (forkIO)
 import Control.Exception (throw)
 import Control.Monad (void)
@@ -30,6 +36,10 @@ import PSR.Chain
 import PSR.ConfigMap qualified as CM
 import PSR.ContextBuilder
 import PSR.Types
+import PlutusLedgerApi.Common (
+    MajorProtocolVersion (MajorProtocolVersion),
+    PlutusLedgerLanguage (..),
+ )
 import Streamly.Data.Fold.Prelude qualified as Fold
 import Streamly.Data.Scanl (Scanl)
 import Streamly.Data.Scanl.Prelude qualified as Scanl
@@ -156,17 +166,46 @@ traceTransactionExecutionResult events tc =
         Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) -> addEvent pwc logs exUnits (Just evalErr)
         _ -> pure ()
   where
-    addEvent PlutusWithContext{..} logs exUnits evalError' = do
-        let scriptHash = C.ScriptHash pwcScriptHash
-        events.addExecutionEvent tc.ctxBlockHeader $
-            ExecutionEventPayload
-                { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
-                , scriptHash
-                , exUnits
-                , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
-                , traceLogs = TraceLogs logs
-                , evalError = docToText . pretty <$> evalError'
-                }
+    addEvent
+        PlutusWithContext
+            { pwcArgs = args :: PlutusArgs l
+            , pwcCostModel
+            , pwcScriptHash
+            , pwcProtocolVersion
+            -- NOTE: max budget, maybe we will need it later
+            -- , pwcExUnits
+            }
+        logs
+        exUnits
+        evalError' = do
+            let
+                scriptHash = C.ScriptHash pwcScriptHash
+                ledgerLanguage =
+                    case isLanguage @l of
+                        SPlutusV1 -> PlutusV1
+                        SPlutusV2 -> PlutusV2
+                        SPlutusV3 -> PlutusV3
+                        SPlutusV4 -> PlutusV3
+                (scriptContext, datum, redeemer) = extractContextDatumRedeemer args
+                context =
+                    ExecutionContext
+                        { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
+                        , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
+                        , scriptHash
+                        , ledgerLanguage
+                        , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))
+                        , datum
+                        , redeemer
+                        , scriptContext
+                        , costModel = pwcCostModel
+                        }
+            events.addExecutionEvent tc.ctxBlockHeader $
+                ExecutionEventPayload
+                    { traceLogs = TraceLogs logs
+                    , exUnits
+                    , evalError = EvalError . docToText . pretty <$> evalError'
+                    , context
+                    }
 
 streamChainSyncEvents ::
     -- | Connection Info

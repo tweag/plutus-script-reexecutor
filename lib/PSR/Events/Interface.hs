@@ -3,11 +3,12 @@
 {- HLINT ignore "Use ||" -}
 module PSR.Events.Interface where
 
-import Cardano.Ledger.Plutus (ExUnits)
+import Cardano.Ledger.Plutus (CostModel, ExUnits)
 import Control.Concurrent.STM.TChan (TChan)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
+import PlutusLedgerApi.Common (Data, MajorProtocolVersion, PlutusLedgerLanguage)
 
 import Cardano.Api (
     BlockHeader,
@@ -39,13 +40,26 @@ data Event = Event
 
 newtype TraceLogs = TraceLogs {getTraceLogs :: [Text]} deriving (Eq, Show, Generic)
 
-data ExecutionEventPayload = ExecutionEventPayload
+data ExecutionContext = ExecutionContext
     { transactionHash :: TxId
-    , scriptHash :: ScriptHash
     , scriptName :: Maybe Text
+    , scriptHash :: ScriptHash
+    , ledgerLanguage :: PlutusLedgerLanguage
+    , majorProtocolVersion :: MajorProtocolVersion
+    , datum :: Maybe Data
+    , redeemer :: Maybe Data
+    , scriptContext :: Data
+    , costModel :: CostModel
+    }
+    deriving (Show, Generic)
+
+newtype EvalError = EvalError Text deriving (Show) via Text
+
+data ExecutionEventPayload = ExecutionEventPayload
+    { traceLogs :: TraceLogs
+    , evalError :: Maybe EvalError
     , exUnits :: ExUnits
-    , traceLogs :: TraceLogs
-    , evalError :: Maybe Text
+    , context :: ExecutionContext
     }
     deriving (Generic)
 
@@ -90,11 +104,11 @@ eventMatchesFilter (EventFilterParams typ time_begin time_end slot_begin slot_en
     C.BlockHeader (fromIntegral . C.unSlotNo -> slotNo) _hash _blockno = event.blockHeader
 
     mScriptName = case event.payload of
-        ExecutionPayload eep -> eep.scriptName
+        ExecutionPayload eep -> eep.context.scriptName
         CancellationPayload{} -> Nothing
         SelectionPayload -> Nothing
 
     mScriptHashText = fmap C.textShow $ case event.payload of
-        ExecutionPayload eep -> Just eep.scriptHash
+        ExecutionPayload eep -> Just eep.context.scriptHash
         CancellationPayload hash -> Just hash
         SelectionPayload -> Nothing

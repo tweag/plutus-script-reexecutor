@@ -17,6 +17,7 @@ import Cardano.Api (BlockHeader (..))
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import PlutusLedgerApi.Common (MajorProtocolVersion (..), PlutusLedgerLanguage (..))
 import Servant
 import Servant.API.WebSocket (WebSocketPending)
 import Servant.QueryParam.Record (RecordParam)
@@ -31,7 +32,21 @@ instance ToJSON BlockHeader where
             ]
 
 deriving newtype instance ToJSON TraceLogs
-instance ToJSON ExecutionEventPayload
+deriving newtype instance ToJSON EvalError
+deriving newtype instance ToJSON MajorProtocolVersion
+deriving instance ToJSON PlutusLedgerLanguage
+
+instance ToJSON ExecutionEventPayload where
+    toJSON ExecutionEventPayload{..} =
+        object
+            [ "transactionHash" .= toJSON context.transactionHash
+            , "scriptHash" .= toJSON context.scriptHash
+            , "scriptName" .= toJSON context.scriptName
+            , "exUnits" .= toJSON exUnits
+            , "traceLogs" .= toJSON traceLogs
+            , "evalError" .= toJSON evalError
+            ]
+
 instance ToJSON EventPayload
 instance ToJSON Event
 

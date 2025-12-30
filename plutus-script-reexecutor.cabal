@@ -1,8 +1,9 @@
-cabal-version: 3.4
-name:          plutus-script-reexecutor
-version:       0.1.0.0
-license:       MIT
-build-type:    Simple
+cabal-version:      3.4
+name:               plutus-script-reexecutor
+version:            0.1.0.0
+license:            MIT
+build-type:         Simple
+extra-source-files: schema.sql
 
 common lang
   default-language:   Haskell2010
@@ -21,6 +22,7 @@ common lang
     DeriveLift
     DeriveTraversable
     DerivingStrategies
+    DerivingVia
     DuplicateRecordFields
     ExplicitForAll
     FlexibleContexts
@@ -75,16 +77,19 @@ library
     , cardano-data
     , cardano-ledger-alonzo
     , cardano-ledger-api
+    , cardano-ledger-binary
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-slotting
     , containers
     , data-default
+    , file-embed
     , microlens
     , ouroboros-network-protocols
     , plutus-ledger-api
     , prometheus-client
     , prometheus-metrics-ghc
+    , serialise
     , servant-queryparam-core
     , servant-queryparam-server
     , servant-server

@@ -9,6 +9,7 @@ module PSR.Chain (
     getTxOutScriptAddr,
     getTxInSet,
     runLocalStateQueryExpr,
+    extractContextDatumRedeemer,
 )
 where
 
@@ -18,12 +19,32 @@ where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
+import Cardano.Ledger.Plutus (
+    LegacyPlutusArgs (..),
+    PlutusArgs,
+    PlutusLanguage,
+    SLanguage (..),
+    isLanguage,
+    unPlutusV1Args,
+    unPlutusV2Args,
+    unPlutusV3Args,
+    unPlutusV4Args,
+ )
 import Control.Exception (Exception, throw)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import PSR.Types
+import PlutusLedgerApi.Common (
+    Data,
+    toData,
+ )
+import PlutusLedgerApi.V3 (
+    ScriptContext (scriptContextScriptInfo),
+    ScriptInfo (..),
+    scriptContextRedeemer,
+ )
 
 --------------------------------------------------------------------------------
 -- Queries
@@ -128,3 +149,31 @@ getTxOutScriptAddr _ = Nothing
 
 getPolicySet :: C.Value -> Set C.PolicyId
 getPolicySet val = Map.keysSet (C.valueToPolicyAssets val)
+
+extractContextDatumRedeemer :: forall l. (PlutusLanguage l) => PlutusArgs l -> (Data, Maybe Data, Maybe Data)
+extractContextDatumRedeemer args =
+    case isLanguage @l of
+        SPlutusV1 -> case unPlutusV1Args args of
+            LegacyPlutusArgs2 r c -> (toData c, Nothing, Just r)
+            LegacyPlutusArgs3 d r c -> (toData c, Just d, Just r)
+        SPlutusV2 -> case unPlutusV2Args args of
+            LegacyPlutusArgs2 r c -> (toData c, Nothing, Just r)
+            LegacyPlutusArgs3 d r c -> (toData c, Just d, Just r)
+        SPlutusV3 ->
+            let
+                c = toData (unPlutusV3Args args)
+                d = case scriptContextScriptInfo (unPlutusV3Args args) of
+                    SpendingScript _ optionalDatum -> toData <$> optionalDatum
+                    _ -> Nothing
+                r = Just (toData (scriptContextRedeemer (unPlutusV3Args args)))
+             in
+                (c, d, r)
+        SPlutusV4 ->
+            let
+                c = toData (unPlutusV4Args args)
+                d = case scriptContextScriptInfo (unPlutusV4Args args) of
+                    SpendingScript _ optionalDatum -> toData <$> optionalDatum
+                    _ -> Nothing
+                r = Just (toData (scriptContextRedeemer (unPlutusV4Args args)))
+             in
+                (c, d, r)

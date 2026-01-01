@@ -192,8 +192,14 @@ streamTransactionContext ::
 streamTransactionContext cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
         & Stream.mapMaybe (mkTransactionContext cm ctx1)
+        & Stream.trace project
+  where
+    projectElem (Right (_, logs, _)) = Right logs
+    projectElem (Left err) = Left err
 
---        & Stream.trace (pCompact . ctxTransactionExecutionResult)
+    projectMap = Map.map projectElem
+    project val =
+        pCompact . projectMap $ ctxTransactionExecutionResult val
 
 --------------------------------------------------------------------------------
 -- Main

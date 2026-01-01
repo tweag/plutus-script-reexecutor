@@ -124,10 +124,10 @@ createConfig :: IO ()
 createConfig = do
     runCmd_ [str|mkdir -p #{env_LOCAL_CONFIG_DIR}|]
     -- Config for Mint-Spend-Burn Loop
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy.plutus") Release.alwaysTrue
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator.plutus") Release.alwaysTrue
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy-debug.plutus") Debug.alwaysTrue
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator-debug.plutus") Debug.alwaysTrue
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy.plutus") Release.tracingPolicy
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator.plutus") Release.tracingValidator
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy-debug.plutus") Debug.tracingPolicy
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator-debug.plutus") Debug.tracingValidator
     -- Config for Escrow
     alice <- mkWallet env_LOCAL_CONFIG_DIR "alice"
     bob <- mkWallet env_LOCAL_CONFIG_DIR "bob"

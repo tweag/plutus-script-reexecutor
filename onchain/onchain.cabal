@@ -53,6 +53,7 @@ library
     , bytestring
     , cardano-api
     , containers
+    , plutus-core
     , plutus-ledger-api
     , plutus-tx
     , plutus-tx-plugin

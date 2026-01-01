@@ -13,7 +13,6 @@ module Populate (
     getPolicyId,
     Wallet (..),
     mkWallet,
-    fundWallet,
     walletKeyHash,
     -- Globals
     env_LOCAL_CONFIG_DIR,
@@ -42,7 +41,6 @@ import Streamly.System.Command qualified as Cmd
 import Streamly.Unicode.Stream qualified as Unicode
 import Streamly.Unicode.String (str)
 import System.FilePath ((<.>), (</>))
-import System.IO.Unsafe (unsafePerformIO)
 
 -------------------------------------------------------------------------------
 -- Utils
@@ -119,16 +117,14 @@ env_FAUCET_WALLET_VKEY_FILE = env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.vke
 env_FAUCET_WALLET_SKEY_FILE :: FilePath
 env_FAUCET_WALLET_SKEY_FILE = env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.skey"
 
-env_FAUCET_WALLET_ADDR :: String
+env_FAUCET_WALLET_ADDR :: IO String
 env_FAUCET_WALLET_ADDR =
-    unsafePerformIO $ readFile $ env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.addr"
+    readFile $ env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.addr"
 
-env_FAUCET_WALLET :: Wallet
+env_FAUCET_WALLET :: IO Wallet
 env_FAUCET_WALLET =
-    Wallet
-        env_FAUCET_WALLET_VKEY_FILE
-        env_FAUCET_WALLET_SKEY_FILE
-        env_FAUCET_WALLET_ADDR
+    Wallet env_FAUCET_WALLET_VKEY_FILE env_FAUCET_WALLET_SKEY_FILE
+        <$> env_FAUCET_WALLET_ADDR
 
 env_TX_UNSIGNED :: String
 env_TX_UNSIGNED = env_POPULATE_WORK_DIR </> "tx.unsigned"
@@ -327,9 +323,6 @@ transferAda (Wallet _ inSign inAddr) (Wallet _ outSign outAddr) adaToTransfer = 
     waitTillExists $ fstOutput txId
     pure txId
 
-fundWallet :: Wallet -> Int -> IO String
-fundWallet = transferAda env_FAUCET_WALLET
-
 --------------------------------------------------------------------------------
 -- Mint, Spend, Burn loop
 --------------------------------------------------------------------------------
@@ -353,7 +346,7 @@ makeAppEnv = do
         numIterations = 10
 
     policyId <- getPolicyId policyFilePath
-    let faucetAddr = env_FAUCET_WALLET_ADDR
+    faucetAddr <- env_FAUCET_WALLET_ADDR
     tokenNameHex <- hexify tokenName
     validatorAddress <- getScriptAddress validatorFilePath
     let assetClass = [str|#{policyId}.#{tokenNameHex}|]
@@ -470,10 +463,11 @@ mintSpendBurnLoop = do
 -- Escrow
 --------------------------------------------------------------------------------
 
+-- TODO: Add escrow logic
 escrow :: IO ()
 escrow = do
     alice <- fetchWallet env_LOCAL_CONFIG_DIR "alice"
     bob <- fetchWallet env_LOCAL_CONFIG_DIR "bob"
-    void $ fundWallet alice 2000000
-    void $ fundWallet bob 2000000
-    -- TODO: Add escrow logic
+    faucet <- env_FAUCET_WALLET
+    void $ transferAda faucet alice 2000000
+    void $ transferAda faucet bob 2000000

@@ -1,23 +1,21 @@
 module PSR.Storage.Interface (
     Storage (..),
-    ExecutionContextId (..),
 ) where
-
-import Cardano.Ledger.Plutus (ExUnits)
-import PSR.Events.Interface (
-    EvalError,
-    Event,
-    EventFilterParams,
-    ExecutionContext,
-    TraceLogs,
- )
 
 import Cardano.Api (
     BlockHeader,
     ScriptHash,
  )
-
-newtype ExecutionContextId = ExecutionContextId {getExecutionContextId :: Integer}
+import Cardano.Ledger.Plutus (ExUnits)
+import Data.Text (Text)
+import PSR.Events.Interface (
+    EvalError,
+    Event,
+    EventFilterParams,
+    ExecutionContext,
+    ExecutionContextId,
+    TraceLogs,
+ )
 
 data Storage = Storage
     { addExecutionEvent :: ExecutionContextId -> TraceLogs -> Maybe EvalError -> ExUnits -> IO ()
@@ -25,4 +23,6 @@ data Storage = Storage
     , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
     , addSelectionEvent :: BlockHeader -> IO ()
     , getEvents :: EventFilterParams -> IO [Event]
+    , -- Returns the recent ExecutionContext that contains the provided name or script hash
+      getExecutionContextByNameOrScriptHash :: Text -> IO (BlockHeader, ExecutionContextId, ExecutionContext)
     }

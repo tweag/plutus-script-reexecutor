@@ -1,7 +1,7 @@
 -- NOTE: The contents of this module are originally copied from
 -- Cardano.Ledger.Alonzo.Plutus.Evaluate
 
-module PSR.Evaluation.Ledger (evalTxExUnitsWithLogs) where
+module PSR.Evaluation.Ledger (evalTxExUnitsWithLogs, evalPwcExUnitsWithLogs) where
 
 --------------------------------------------------------------------------------
 -- Imports
@@ -10,11 +10,12 @@ module PSR.Evaluation.Ledger (evalTxExUnitsWithLogs) where
 import Cardano.Ledger.Alonzo.Core
 import Cardano.Ledger.Alonzo.Plutus.Context (EraPlutusContext (..), LedgerTxInfo (..))
 import Cardano.Ledger.Alonzo.Plutus.Evaluate (TransactionScriptFailure (..))
-import Cardano.Ledger.Alonzo.Scripts (lookupPlutusScript, plutusScriptLanguage, toAsItem, toAsIx)
+import Cardano.Ledger.Alonzo.Scripts (ExUnits, lookupPlutusScript, plutusScriptLanguage, toAsItem, toAsIx)
 import Cardano.Ledger.Alonzo.TxWits (unRedeemersL)
 import Cardano.Ledger.Alonzo.UTxO (AlonzoScriptsNeeded (..))
 import Cardano.Ledger.Plutus.CostModels (costModelsValid)
 import Cardano.Ledger.Plutus.Evaluate (
+    PlutusWithContext,
     evaluatePlutusWithContext,
  )
 import Cardano.Ledger.Plutus.TxInfo (exBudgetToExUnits)
@@ -26,7 +27,7 @@ import Data.Map.Strict qualified as Map
 import Data.MapExtras (fromElems)
 import Data.Text (Text)
 import Lens.Micro
-import PSR.Types (RedeemerReportWithLogs, ScriptSubtitutionInfo)
+import PSR.Types (PwcExecutionResult, RedeemerReportWithLogs, ScriptSubtitutionInfo)
 import PlutusLedgerApi.Common qualified as P
 
 import Cardano.Api qualified as C
@@ -39,6 +40,17 @@ import Cardano.Ledger.Conway.Scripts qualified as Conway
 note :: e -> Maybe a -> Either e a
 note _ (Just x) = Right x
 note e Nothing = Left e
+
+evalPwcExUnitsWithLogs ::
+    PlutusWithContext ->
+    ExUnits ->
+    PwcExecutionResult era
+evalPwcExUnitsWithLogs pwc exUnits =
+    case evaluatePlutusWithContext P.Verbose pwc of
+        (logs, Left err) -> Left $ ValidationFailure exUnits err logs pwc
+        (logs, Right exBudget) ->
+            note (IncompatibleBudget exBudget) $
+                (pwc,logs,) <$> exBudgetToExUnits exBudget
 
 evalTxExUnitsWithLogs ::
     forall era.
@@ -122,8 +134,4 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
                     txInfoResult
                     (redeemerData, maxBudget)
                     costModel
-        case evaluatePlutusWithContext P.Verbose pwc of
-            (logs, Left err) -> Left $ ValidationFailure exUnits err logs pwc
-            (logs, Right exBudget) ->
-                note (IncompatibleBudget exBudget) $
-                    (pwc,logs,) <$> exBudgetToExUnits exBudget
+        evalPwcExUnitsWithLogs pwc exUnits

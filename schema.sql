@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS execution_context (
   datum BLOB,
   redeemer BLOB,
   script_context BLOB NOT NULL,
+  exec_budget_max_cpu INTEGER NOT NULL,
+  exec_budget_max_mem INTEGER NOT NULL,
 
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

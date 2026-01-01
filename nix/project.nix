@@ -22,7 +22,10 @@ let
       inputMap = { "https://chap.intersectmbo.org/" = inputs.CHaP; };
 
       modules = [{
-        packages = {};
+        # Strip debugging symbols from exes (smaller closures)
+        packages = {
+          plutus-script-reexecutor.dontStrip = false;
+        };
       }];
     }
   );

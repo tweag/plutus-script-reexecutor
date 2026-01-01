@@ -7,6 +7,7 @@ module PSR.HTTP.API (
     EventRoutes (..),
     EventsWebSockets (..),
     Event (..),
+    ExecuteParams (..),
     siteApi,
 ) where
 
@@ -38,14 +39,24 @@ deriving instance ToJSON PlutusLedgerLanguage
 
 instance ToJSON ExecutionEventPayload where
     toJSON ExecutionEventPayload{..} =
-        object
-            [ "transactionHash" .= toJSON context.transactionHash
-            , "scriptHash" .= toJSON context.scriptHash
-            , "scriptName" .= toJSON context.scriptName
-            , "exUnits" .= toJSON exUnits
-            , "traceLogs" .= toJSON traceLogs
-            , "evalError" .= toJSON evalError
-            ]
+        case context of
+            Left c ->
+                object
+                    [ "transactionHash" .= toJSON c.transactionHash
+                    , "scriptHash" .= toJSON c.scriptHash
+                    , "scriptName" .= toJSON c.scriptName
+                    , "exUnits" .= toJSON exUnits
+                    , "traceLogs" .= toJSON traceLogs
+                    , "evalError" .= toJSON evalError
+                    ]
+            Right (ExecutionContextId eci) ->
+                object
+                    -- TODO: will be removed later, should return proper context details
+                    [ "context_id" .= toJSON eci
+                    , "exUnits" .= toJSON exUnits
+                    , "traceLogs" .= toJSON traceLogs
+                    , "evalError" .= toJSON evalError
+                    ]
 
 instance ToJSON EventPayload
 instance ToJSON Event
@@ -80,11 +91,17 @@ data EventsWebSockets route = EventsWebSockets
     }
     deriving (Generic)
 
+data ExecuteParams = ExecuteParams
+    { _ep_contextId :: Maybe Integer
+    }
+    deriving (Generic)
+
 data SiteRoutes route = SiteRoutes
     { events ::
         route :- "events" :> NamedRoutes EventRoutes
     , eventsWebSockets ::
         route :- "events-ws" :> NamedRoutes EventsWebSockets
+    , execute :: route :- "execute" :> Capture "name_or_script_hash" Text :> RecordParam DropPrefixExp ExecuteParams :> Get '[JSON] Event
     }
     deriving (Generic)
 

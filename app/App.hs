@@ -42,7 +42,7 @@ run Options{..} = do
 
     Storage.withSqliteStorage sqlitePath $ \storage ->
         Events.withEvents storage $ \events ->
-            Async.withAsync (HTTP.run events httpServerPort) $ \serverAsync -> do
+            Async.withAsync (HTTP.run config storage events httpServerPort) $ \serverAsync -> do
                 Async.link serverAsync
                 Streaming.mainLoop events config points
 

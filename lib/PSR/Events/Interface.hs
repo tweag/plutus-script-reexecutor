@@ -49,17 +49,20 @@ data ExecutionContext = ExecutionContext
     , datum :: Maybe Data
     , redeemer :: Maybe Data
     , scriptContext :: Data
+    , exMaxBudget :: ExUnits
     , costModel :: CostModel
     }
     deriving (Show, Generic)
 
 newtype EvalError = EvalError Text deriving (Show) via Text
 
+newtype ExecutionContextId = ExecutionContextId {getExecutionContextId :: Integer}
+
 data ExecutionEventPayload = ExecutionEventPayload
     { traceLogs :: TraceLogs
     , evalError :: Maybe EvalError
     , exUnits :: ExUnits
-    , context :: ExecutionContext
+    , context :: Either ExecutionContext ExecutionContextId
     }
     deriving (Generic)
 
@@ -76,7 +79,7 @@ data EventFilterParams = EventFilterParams
     deriving (Generic)
 
 data Events = Events
-    { addExecutionEvent :: BlockHeader -> ExecutionEventPayload -> IO ()
+    { addExecutionEvent :: BlockHeader -> ExecutionEventPayload -> IO Event
     , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
     , addSelectionEvent :: BlockHeader -> IO ()
     , getEventsChannel :: TChan Event
@@ -104,11 +107,15 @@ eventMatchesFilter (EventFilterParams typ time_begin time_end slot_begin slot_en
     C.BlockHeader (fromIntegral . C.unSlotNo -> slotNo) _hash _blockno = event.blockHeader
 
     mScriptName = case event.payload of
-        ExecutionPayload eep -> eep.context.scriptName
+        ExecutionPayload eep -> case eep.context of
+            Left c -> c.scriptName
+            Right _ -> Nothing
         CancellationPayload{} -> Nothing
         SelectionPayload -> Nothing
 
     mScriptHashText = fmap C.textShow $ case event.payload of
-        ExecutionPayload eep -> Just eep.context.scriptHash
+        ExecutionPayload eep -> case eep.context of
+            Left c -> Just c.scriptHash
+            Right _ -> Nothing
         CancellationPayload hash -> Just hash
         SelectionPayload -> Nothing

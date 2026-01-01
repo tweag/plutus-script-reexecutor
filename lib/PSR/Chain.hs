@@ -21,7 +21,7 @@ import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Plutus (
     LegacyPlutusArgs (..),
-    PlutusArgs,
+    PlutusArgs (..),
     PlutusLanguage,
     SLanguage (..),
     isLanguage,

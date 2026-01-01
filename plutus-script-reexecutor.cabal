@@ -56,6 +56,7 @@ library
     PSR.Chain
     PSR.ConfigMap
     PSR.ContextBuilder
+    PSR.Evaluation
     PSR.Evaluation.Api
     PSR.Evaluation.Ledger
     PSR.Events
@@ -91,6 +92,7 @@ library
     , plutus-ledger-api
     , prometheus-client
     , prometheus-metrics-ghc
+    , resource-pool
     , serialise
     , servant-queryparam-core
     , servant-queryparam-server
@@ -100,7 +102,6 @@ library
     , stm
     , streamly
     , streamly-core
-    , resource-pool
     , text
     , time
     , transformers

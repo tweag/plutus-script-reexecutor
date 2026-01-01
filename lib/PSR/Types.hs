@@ -7,6 +7,7 @@ module PSR.Types (
     ScriptSubtitutionInfo,
     TransactionExecutionResult,
     RedeemerReportWithLogs,
+    PwcExecutionResult,
 ) where
 
 --------------------------------------------------------------------------------
@@ -48,5 +49,7 @@ type TransactionExecutionResult =
         C.ScriptWitnessIndex
         (Either C.ScriptExecutionError (L.PlutusWithContext, [Text], L.ExUnits))
 
+type PwcExecutionResult era = Either (L.TransactionScriptFailure era) (L.PlutusWithContext, [Text], L.ExUnits)
+
 type RedeemerReportWithLogs era =
-    Map (L.PlutusPurpose L.AsIx era) (Either (L.TransactionScriptFailure era) (L.PlutusWithContext, [Text], L.ExUnits))
+    Map (L.PlutusPurpose L.AsIx era) (PwcExecutionResult era)

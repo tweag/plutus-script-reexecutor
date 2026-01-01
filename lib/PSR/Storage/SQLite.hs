@@ -143,6 +143,7 @@ mkStorage metrics pool = do
             blockId <- getOrCreateBlockId conn blockHeader
             costModelParamsId <- getOrCreateCostModelParamsId conn majorProtocolVersion costModel
             let
+                ExUnits exBudgetMaxCpu exBudgetMaxMem = exMaxBudget
                 params =
                     [ ":block_id" := blockId
                     , ":transaction_hash" := transactionHash
@@ -153,6 +154,8 @@ mkStorage metrics pool = do
                     , ":datum" := datum
                     , ":redeemer" := redeemer
                     , ":script_context" := scriptContext
+                    , ":exec_budget_max_cpu" := toInteger exBudgetMaxCpu
+                    , ":exec_budget_max_mem" := toInteger exBudgetMaxMem
                     , ":cost_model_params_id" := costModelParamsId
                     ]
             rows <-
@@ -160,8 +163,8 @@ mkStorage metrics pool = do
                     metrics.addExecutionEvent_insert
                     conn
                     "INSERT INTO execution_context \
-                    \ (block_id, transaction_hash, script_hash, script_name, ledger_language, major_protocol_version, datum, redeemer, script_context, cost_model_params_id) \
-                    \ values (:block_id, :transaction_hash, :script_hash, :script_name, :ledger_language, :major_protocol_version, :datum, :redeemer, :script_context, :cost_model_params_id) \
+                    \ (block_id, transaction_hash, script_hash, script_name, ledger_language, major_protocol_version, datum, redeemer, script_context, exec_budget_max_cpu, exec_budget_max_mem, cost_model_params_id) \
+                    \ values (:block_id, :transaction_hash, :script_hash, :script_name, :ledger_language, :major_protocol_version, :datum, :redeemer, :script_context, :exec_budget_max_cpu, :exec_budget_max_mem, :cost_model_params_id) \
                     \ RETURNING context_id"
                     params
             case rows of
@@ -213,7 +216,7 @@ mkStorage metrics pool = do
                                 ":event_type"
                         , _eventFilterParam_name_or_script_hash
                             <&> mkNamedParam
-                                "ec.script_name = :name_or_hash or ec.script_hash = :name_or_hash or c.script_hash = :name_or_hash"
+                                "ec.script_name = :name_or_hash or HEX(ec.script_hash) = UPPER(:name_or_hash) or HEX(c.script_hash) = UPPER(:name_or_hash)"
                                 ":name_or_hash"
                         , _eventFilterParam_slot_begin
                             <&> mkNamedParam
@@ -261,6 +264,8 @@ mkStorage metrics pool = do
                     \ ec.datum, \
                     \ ec.redeemer, \
                     \ ec.script_context, \
+                    \ ec.exec_budget_max_cpu, \
+                    \ ec.exec_budget_max_mem, \
                     \ cmp.params \
                     \ FROM block b \
                     \ LEFT JOIN execution_context ec ON ec.block_id = b.block_id \
@@ -269,7 +274,7 @@ mkStorage metrics pool = do
                     \ LEFT JOIN cancellation_event c ON c.block_id = b.block_id \
                     \ LEFT JOIN selection_event s ON s.block_id = b.block_id "
                         <> paramsQuery
-                        <> " ORDER BY b.block_id DESC \
+                        <> " ORDER BY COALESCE(ee.created_at, c.created_at, s.created_at) ASC \
                            \ LIMIT :limit \
                            \ OFFSET :offset"
 
@@ -285,13 +290,13 @@ mkStorage metrics pool = do
                             payload = case eventType of
                                 Execution ->
                                     case (mTraceLogs, mExBudgetCpu, mExBudgetMem, mExecutionContext) of
-                                        (Just traceLogs, Just exBudgetCpu, Just exBudgetMem, Just context) ->
+                                        (Just traceLogs, Just exBudgetCpu, Just exBudgetMem, Just execContext) ->
                                             ExecutionPayload $
                                                 ExecutionEventPayload
                                                     { traceLogs
                                                     , evalError
                                                     , exUnits = ExUnits (fromInteger exBudgetCpu) (fromInteger exBudgetMem)
-                                                    , context
+                                                    , context = Left execContext
                                                     }
                                         _ ->
                                             -- TODO: handle the error properly
@@ -305,6 +310,39 @@ mkStorage metrics pool = do
                                 Selection -> SelectionPayload
                          in
                             Event{..}
+
+    getExecutionContextByNameOrScriptHash :: Text -> IO (BlockHeader, ExecutionContextId, ExecutionContext)
+    getExecutionContextByNameOrScriptHash scriptNameOrHash =
+        withResource pool $ \conn -> withTransaction conn $ do
+            let
+                sqlQuery =
+                    "SELECT b.slot_no, b.hash, b.block_no, \
+                    \ ec.context_id, \
+                    \ ec.transaction_hash, \
+                    \ ec.script_name, \
+                    \ ec.script_hash, \
+                    \ ec.ledger_language, \
+                    \ ec.major_protocol_version, \
+                    \ ec.datum, \
+                    \ ec.redeemer, \
+                    \ ec.script_context, \
+                    \ ec.exec_budget_max_cpu, \
+                    \ ec.exec_budget_max_mem, \
+                    \ cmp.params \
+                    \ FROM execution_context ec \
+                    \ LEFT JOIN block b ON ec.block_id = b.block_id \
+                    \ LEFT JOIN cost_model_params cmp ON cmp.params_id = ec.cost_model_params_id \
+                    \ WHERE HEX(ec.script_hash) = UPPER(:name_or_hash) OR ec.script_name = :name_or_hash \
+                    \ ORDER BY ec.created_at ASC LIMIT 1"
+
+            rows :: [BlockHeader :. Only ExecutionContextId :. Maybe ExecutionContext] <-
+                queryNamed metrics.getExecutionContextByNameOrScriptHash_select conn sqlQuery [":name_or_hash" := scriptNameOrHash]
+
+            case rows of
+                [bh :. Only eci :. Just ec] -> pure (bh, eci, ec)
+                _ ->
+                    -- TODO: handle the error properly
+                    error "Failed to retrieve the execution context"
 
 initSchema :: Connection -> IO ()
 initSchema conn = withTransaction conn $ do
@@ -325,6 +363,7 @@ data SqliteMetrics = SqliteMetrics
     , addCancellationEvent_insert :: Summary
     , addSelectionEvent_insert :: Summary
     , getEvents_select :: Summary
+    , getExecutionContextByNameOrScriptHash_select :: Summary
     }
 
 initialiseMetrics :: IO SqliteMetrics
@@ -369,6 +408,10 @@ initialiseMetrics = do
         regSummary
             "sqlite_getEvents_select"
             "Execution time of getEvents select query"
+    getExecutionContextByNameOrScriptHash_select <-
+        regSummary
+            "sqlite_getOrCreateCostModelParamsId_select"
+            "Execution time of getExecutionContextByNameOrScriptHash select query"
     pure SqliteMetrics{..}
 
 -- instances
@@ -481,6 +524,9 @@ instance FromRow (Maybe ExecutionContext) where
         datum <- maybeField
         redeemer <- maybeField
         scriptContext <- maybeField
+        exBudgetMaxCpu <- maybeField
+        exBudgetMaxMem <- maybeField
+        let exMaxBudget = liftA2 ExUnits (fromInteger <$> exBudgetMaxCpu) (fromInteger <$> exBudgetMaxMem)
         costModel <-
             fieldWith $ \f ->
                 fromField f >>= \case
@@ -508,6 +554,7 @@ instance FromRow (Maybe ExecutionContext) where
                 <*> pure datum
                 <*> pure redeemer
                 <*> scriptContext
+                <*> exMaxBudget
                 <*> costModel
 
 maybeField :: (FromField a) => RowParser (Maybe a)

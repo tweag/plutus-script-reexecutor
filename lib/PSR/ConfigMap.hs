@@ -9,19 +9,20 @@ module PSR.ConfigMap (
 import Cardano.Api qualified as C
 import Control.Applicative (asum)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, withExceptT)
+import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, withExceptT, throwE)
 import Data.Aeson.Types (FromJSON (..), ToJSON (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text (Text)
-import Data.Traversable (for)
 import Data.Yaml (decodeFileEither, withObject)
 import Data.Yaml.Aeson (Value (Object), object, (.:), (.:?), (.=))
 import PSR.Chain (mkLocalNodeConnectInfo)
-
 import PlutusLedgerApi.Common (
     MajorProtocolVersion,
     PlutusLedgerLanguage (..),
+    ScriptForEvaluation,
+    deserialiseScript,
+    ledgerLanguageIntroducedIn,
  )
 
 -- | Represents the config map file on disk
@@ -96,10 +97,9 @@ data ConfigMap = ConfigMap
 data ResolvedScript = ResolvedScript
     { rsScriptHash :: C.ScriptHash
     , rsName :: Maybe Text
-    , rsSource :: Maybe ScriptSource
-    , -- TODO: Should this be incorporated into rsScourse?
-      --       Can't be Just when rsSource is Nothing
-      rsScriptFileContent :: Maybe C.ScriptInAnyLang
+    , rsScriptFileContent :: C.ScriptInAnyLang
+    , rsScriptEvaluationParameters :: ScriptEvaluationParameters
+    , rsScriptForEvaluation :: ScriptForEvaluation
     }
     deriving (Show, Eq)
 
@@ -111,6 +111,22 @@ data ScriptEvaluationParameters where
         ScriptEvaluationParameters
     deriving (Show, Eq)
 
+-- resolveScript :: ScriptInAnyLang -> _
+resolveScript :: C.ScriptInAnyLang -> ExceptT String IO (ScriptEvaluationParameters, ScriptForEvaluation)
+resolveScript (scr :: C.ScriptInAnyLang) = do
+    -- TODO: Is this the right protocol major version?
+    (lang, protocol, script) <- case scr of
+        C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV1) (C.PlutusScript _ (C.PlutusScriptSerialised src)) ->
+            pure (PlutusV1, ledgerLanguageIntroducedIn PlutusV1, src)
+        C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV2) (C.PlutusScript _ (C.PlutusScriptSerialised src)) ->
+            pure (PlutusV2, ledgerLanguageIntroducedIn PlutusV2, src)
+        C.ScriptInAnyLang (C.PlutusScriptLanguage C.PlutusScriptV3) (C.PlutusScript _ (C.PlutusScriptSerialised src)) ->
+            pure (PlutusV3, ledgerLanguageIntroducedIn PlutusV3, src)
+        _ -> throwE $ "Unsupported script: " ++ show scr
+
+    (ScriptEvaluationParameters lang protocol,)
+        <$> withExceptT show (deserialiseScript lang protocol script)
+
 -- | Resolve a script, either from disk or inline definition
 readScriptFile :: ScriptDetails -> ExceptT String IO ResolvedScript
 readScriptFile ScriptDetails{..} = do
@@ -120,19 +136,23 @@ readScriptFile ScriptDetails{..} = do
         v3 = someTypeFor (C.AsPlutusScript C.AsPlutusScriptV3) C.PlutusScriptV3
         scriptTypes = [v1, v2, v3]
 
-    rsScriptFileContent <- for sdSource $ \case
-        FromFile path -> do
+    rsScriptFileContent <- case sdSource of
+        Just (FromFile path) -> do
             liftIO $ putStrLn $ "Reading script from file: " <> path
             withExceptT show $ ExceptT $ C.readFileTextEnvelopeAnyOf scriptTypes (C.File path)
-        CBORHex content ->
+        Just (CBORHex content) ->
             withExceptT show $ except $ C.deserialiseFromTextEnvelopeAnyOf scriptTypes content
+        _ -> fail $ "Please provide either the cborHex or file_path for: " <> show sdScriptHash
+
+    (rsScriptEvaluationParameters, rsScriptForEvaluation) <- resolveScript rsScriptFileContent
 
     pure
         ResolvedScript
             { rsScriptHash = sdScriptHash
             , rsName = sdName
-            , rsSource = sdSource
             , rsScriptFileContent
+            , rsScriptEvaluationParameters
+            , rsScriptForEvaluation
             }
 
 -- | Parse the config from a given Yaml file on disk

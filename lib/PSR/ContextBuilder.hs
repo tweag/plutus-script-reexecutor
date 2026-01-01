@@ -229,11 +229,5 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
             ctxInputUtxoMap
             tx
 
-    mkLedgerScript ResolvedScript{..} =
-        case rsScriptFileContent of
-            Just scrInAny ->
-                case C.toScriptInEra (C.convert ctxAlonzoEraOnwards) scrInAny of
-                    Nothing -> Nothing
-                    Just scriptInEra -> Just (C.toShelleyScript scriptInEra)
-            _ -> Nothing
+    mkLedgerScript ResolvedScript{..} = C.toShelleyScript <$> C.toScriptInEra (C.convert ctxAlonzoEraOnwards) rsScriptFileContent
     subMap = Map.mapMaybe mkLedgerScript scriptMap

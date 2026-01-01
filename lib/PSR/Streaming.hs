@@ -173,8 +173,7 @@ traceTransactionExecutionResult events tc =
             , pwcCostModel
             , pwcScriptHash
             , pwcProtocolVersion
-            -- NOTE: max budget, maybe we will need it later
-            -- , pwcExUnits
+            , pwcExUnits
             }
         logs
         exUnits
@@ -189,24 +188,27 @@ traceTransactionExecutionResult events tc =
                         SPlutusV4 -> PlutusV3
                 (scriptContext, datum, redeemer) = extractContextDatumRedeemer args
                 context =
-                    ExecutionContext
-                        { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
-                        , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
-                        , scriptHash
-                        , ledgerLanguage
-                        , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))
-                        , datum
-                        , redeemer
-                        , scriptContext
-                        , costModel = pwcCostModel
+                    Left
+                        ExecutionContext
+                            { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
+                            , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
+                            , scriptHash
+                            , ledgerLanguage
+                            , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))
+                            , datum
+                            , redeemer
+                            , scriptContext
+                            , costModel = pwcCostModel
+                            , exMaxBudget = pwcExUnits
+                            }
+            void $
+                events.addExecutionEvent tc.ctxBlockHeader $
+                    ExecutionEventPayload
+                        { traceLogs = TraceLogs logs
+                        , exUnits
+                        , evalError = EvalError . docToText . pretty <$> evalError'
+                        , context
                         }
-            events.addExecutionEvent tc.ctxBlockHeader $
-                ExecutionEventPayload
-                    { traceLogs = TraceLogs logs
-                    , exUnits
-                    , evalError = EvalError . docToText . pretty <$> evalError'
-                    , context
-                    }
 
 streamChainSyncEvents ::
     -- | Connection Info

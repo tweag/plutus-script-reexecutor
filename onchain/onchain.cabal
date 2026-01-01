@@ -8,7 +8,19 @@ name:          onchain
 version:       0.0.0
 build-type:    Simple
 
+-- These options are required for Plinth builds
+-- Copied from: https://github.com/IntersectMBO/plinth-template
+-- PlutusTx.Plugin:target-version=1.0.0 == PlutusV2
+common plinth-options
+  ghc-options:
+    -fobject-code -fno-full-laziness -fno-ignore-interface-pragmas
+    -fno-omit-interface-pragmas -fno-spec-constr -fno-specialise
+    -fno-strictness -fno-unbox-small-strict-fields
+    -fno-unbox-strict-fields -fplugin-opt
+    PlutusTx.Plugin:target-version=1.0.0
+
 library
+  import:             plinth-options
   exposed-modules:
     Onchain.Debug
     Onchain.Escrow

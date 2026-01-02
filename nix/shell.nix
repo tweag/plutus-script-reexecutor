@@ -10,6 +10,8 @@ let
     "ghc966".fourmolu                 = project.projectVariants.ghc966.tool "fourmolu" "latest";
     "ghc966".hlint                    = project.projectVariants.ghc966.tool "hlint" "latest";
     "ghc966".ghcid                    = project.projectVariants.ghc966.tool "ghcid" "latest";
+    "ghc966".weeder                   = project.projectVariants.ghc966.tool "weeder" "latest";
+    "ghc966".cabal-plan               = project.projectVariants.ghc966.tool "weeder" "latest";
 
     "ghc984".cabal                    = project.projectVariants.ghc984.tool "cabal" "latest";
     "ghc984".cabal-fmt                = project.projectVariants.ghc984.tool "cabal-fmt" "latest";
@@ -17,6 +19,8 @@ let
     "ghc984".stylish-haskell          = project.projectVariants.ghc984.tool "stylish-haskell" "latest";
     "ghc984".fourmolu                 = project.projectVariants.ghc984.tool "fourmolu" "latest";
     "ghc984".hlint                    = project.projectVariants.ghc984.tool "hlint" "latest";
+    "ghc984".weeder                   = project.projectVariants.ghc984.tool "weeder" "latest";
+    "ghc984".cabal-plan               = project.projectVariants.ghc984.tool "weeder" "latest";
 
     "ghc9102".cabal                   = project.projectVariants.ghc9102.tool "cabal" "latest";
     "ghc9102".cabal-fmt               = project.projectVariants.ghc966.tool  "cabal-fmt" "latest"; # cabal-fmt not buildable with ghc9102
@@ -24,6 +28,8 @@ let
     "ghc9102".stylish-haskell         = project.projectVariants.ghc9102.tool "stylish-haskell" "latest";
     "ghc9102".fourmolu                = project.projectVariants.ghc9102.tool "fourmolu" "latest";
     "ghc9102".hlint                   = project.projectVariants.ghc9102.tool "hlint" "latest";
+    "ghc9102".weeder                  = project.projectVariants.ghc9102.tool "weeder" "latest";
+    "ghc9102".cabal-plan              = project.projectVariants.ghc9102.tool "weeder" "latest";
 
     "ghc9122".cabal                   = project.projectVariants.ghc9122.tool "cabal" "latest";
     "ghc9122".cabal-fmt               = project.projectVariants.ghc966.tool  "cabal-fmt" "latest"; # cabal-fmt not buildable with ghc9122
@@ -31,6 +37,8 @@ let
     "ghc9122".stylish-haskell         = project.projectVariants.ghc9122.tool "stylish-haskell" "latest";
     "ghc9122".fourmolu                = project.projectVariants.ghc9122.tool "fourmolu" "latest";
     "ghc9122".hlint                   = project.projectVariants.ghc9122.tool "hlint" "latest";
+    "ghc9122".weeder                  = project.projectVariants.ghc9122.tool "weeder" "latest";
+    "ghc9122".cabal-plan              = project.projectVariants.ghc9122.tool "cabal-plan" "latest";
   };
 
   tools = allTools.${ghc};
@@ -84,6 +92,8 @@ let
     tools.hlint
     tools.cabal-fmt
     tools.ghcid
+    tools.weeder
+    tools.cabal-plan
 
     inputs.cardano-node.packages.${pkgs.system}.cardano-node
     inputs.cardano-node.packages.${pkgs.system}.cardano-testnet
@@ -105,6 +115,8 @@ let
 
     pkgs.websocat
     pkgs.jq
+    # visualise cabal-plan output
+    pkgs.graphviz
   ];
 
   shell = project.shellFor {

@@ -6,7 +6,6 @@ module PSR.Types (
     Block (..),
     ScriptSubtitutionInfo,
     TransactionExecutionResult,
-    pCompact,
     RedeemerReportWithLogs,
 ) where
 
@@ -22,7 +21,6 @@ import Control.Exception (Exception)
 import Data.Map (Map)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Text.Pretty.Simple
 
 --------------------------------------------------------------------------------
 -- Types
@@ -52,19 +50,3 @@ type TransactionExecutionResult =
 
 type RedeemerReportWithLogs era =
     Map (L.PlutusPurpose L.AsIx era) (Either (L.TransactionScriptFailure era) (L.PlutusWithContext, [Text], L.ExUnits))
-
---------------------------------------------------------------------------------
--- Debugging Utils
---------------------------------------------------------------------------------
-
-compactPrintOpts :: OutputOptions
-compactPrintOpts =
-    defaultOutputOptionsDarkBg
-        { outputOptionsCompact = True
-        , outputOptionsCompactParens = True
-        , outputOptionsIndentAmount = 2
-        , outputOptionsStringStyle = Literal
-        }
-
-pCompact :: (Show a) => a -> IO ()
-pCompact = pPrintOpt CheckColorTty compactPrintOpts

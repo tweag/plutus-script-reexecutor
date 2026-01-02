@@ -340,7 +340,7 @@ data AppEnv = AppEnv
 makeAppEnv :: IO AppEnv
 makeAppEnv = do
     let policyFilePath = env_LOCAL_CONFIG_DIR </> "policy.plutus"
-        validatorFilePath = env_LOCAL_CONFIG_DIR </> "validator.plutus"
+        validatorFilePath = env_LOCAL_CONFIG_DIR </> "validator-v3.plutus"
         tokenName = "TEST_TOKEN"
         assetAmount = "100"
         numIterations = 10

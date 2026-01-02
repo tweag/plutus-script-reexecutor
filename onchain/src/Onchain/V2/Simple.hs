@@ -1,4 +1,6 @@
-module Onchain.Simple where
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:target-version=1.0.0 #-}
+
+module Onchain.V2.Simple where
 
 --------------------------------------------------------------------------------
 -- Imports

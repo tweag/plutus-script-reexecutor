@@ -1,4 +1,6 @@
-module Onchain.Escrow where
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:target-version=1.0.0 #-}
+
+module Onchain.V2.Escrow where
 
 --------------------------------------------------------------------------------
 -- Imports
@@ -63,8 +65,8 @@ validator params action ctx =
 {-# INLINEABLE validatorUntyped #-}
 validatorUntyped :: EscrowParams -> BuiltinData -> BuiltinData -> BuiltinData -> BuiltinUnit
 validatorUntyped params _ r ctx =
-    check
-        $ validator
+    check $
+        validator
             params
             (unsafeFromBuiltinData r)
             (unsafeFromBuiltinData ctx)

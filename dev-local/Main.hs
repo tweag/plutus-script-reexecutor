@@ -11,10 +11,11 @@ module Main (main) where
 import Data.Function ((&))
 import Data.String (IsString (..))
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Export (writePlutusScript)
+import Export (writePlutusScript, writePlutusScriptV3)
 import Onchain.Debug qualified as Debug
-import Onchain.Escrow (EscrowParams (..))
 import Onchain.Release qualified as Release
+import Onchain.V2.Escrow (EscrowParams (..))
+import Onchain.V3.Simple qualified as SimpleV3
 import Options.Applicative hiding (str)
 import Populate
 import Streamly.Console.Stdio qualified as Console
@@ -99,6 +100,7 @@ createScriptsYaml = do
     policyPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "policy.plutus"
     validatorPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "validator.plutus"
     escrowPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "escrow.plutus"
+    validatorV3PolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "validator-v3.plutus"
     writeFile
         (env_LOCAL_CONFIG_DIR </> "scripts.yaml")
         [str|
@@ -118,6 +120,12 @@ scripts:
     name: "Escrow"
     source:
       path: "#{env_LOCAL_CONFIG_DIR}/escrow-debug.plutus"
+
+
+  - script_hash: "#{validatorV3PolicyId}"
+    name: "Simple v3"
+    source:
+      path: "#{env_LOCAL_CONFIG_DIR}/validator-v3.plutus"
 |]
 
 createConfig :: IO ()
@@ -128,6 +136,7 @@ createConfig = do
     writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator.plutus") Release.tracingValidator
     writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy-debug.plutus") Debug.tracingPolicy
     writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator-debug.plutus") Debug.tracingValidator
+    writePlutusScriptV3 (env_LOCAL_CONFIG_DIR </> "validator-v3.plutus") SimpleV3.compiledValidator
     -- Config for Escrow
     alice <- mkWallet env_LOCAL_CONFIG_DIR "alice"
     bob <- mkWallet env_LOCAL_CONFIG_DIR "bob"

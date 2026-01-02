@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:target-version=1.0.0 #-}
+
 #ifdef REMOVE_TRACE
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:remove-trace #-}
 #endif
@@ -8,9 +10,9 @@ module MODULE_NAME where
 -- Imports
 --------------------------------------------------------------------------------
 
-import Onchain.Simple (CompiledCodeLang (..))
-import Onchain.Simple qualified as Simple
-import Onchain.Escrow qualified as Escrow
+import Onchain.V2.Simple (CompiledCodeLang (..))
+import Onchain.V2.Simple qualified as Simple
+import Onchain.V2.Escrow qualified as Escrow
 import PlutusTx
 import PlutusTx.Prelude
 import Cardano.Api

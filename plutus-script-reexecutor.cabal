@@ -131,6 +131,7 @@ executable dev-local
     , filepath
     , onchain
     , optparse-applicative
+    , plutus-tx
     , plutus-ledger-api
     , streamly-core
     , streamly-process

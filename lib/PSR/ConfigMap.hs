@@ -18,6 +18,7 @@ import Data.Traversable (for)
 import Data.Yaml (decodeFileEither, withObject)
 import Data.Yaml.Aeson (Value (Object), object, (.:), (.:?), (.=))
 import PSR.Chain (mkLocalNodeConnectInfo)
+
 import PlutusLedgerApi.Common (
     MajorProtocolVersion,
     PlutusLedgerLanguage (..),

@@ -14,6 +14,8 @@ module Populate (
     Wallet (..),
     mkWallet,
     walletKeyHash,
+    buildStakeAddress,
+    genRegCertStakeAddress,
     -- Globals
     env_LOCAL_CONFIG_DIR,
     env_POPULATE_WORK_DIR,
@@ -21,7 +23,7 @@ module Populate (
     env_CARDANO_TESTNET_MAGIC,
     env_CARDANO_TESTNET_NUM_NODES,
     -- Main
-    mintSpendBurnLoop,
+    testScriptTrigger,
     escrow,
 ) where
 
@@ -211,6 +213,18 @@ submitTransaction args =
         (optNetwork : optSocketPath : args)
         & drain
 
+buildStakeAddress :: [CmdOption] -> IO ()
+buildStakeAddress args =
+    runCmd
+        "cardano-cli conway stake-address build"
+        (optNetwork : args)
+        & drain
+
+genRegCertStakeAddress :: [CmdOption] -> IO ()
+genRegCertStakeAddress args =
+    runCmd "cardano-cli conway stake-address registration-certificate" args
+        & drain
+
 getTransactionId :: String -> IO String
 getTransactionId txSigned =
     runCmd
@@ -324,7 +338,7 @@ transferAda (Wallet _ inSign inAddr) (Wallet _ outSign outAddr) adaToTransfer = 
     pure txId
 
 --------------------------------------------------------------------------------
--- Mint, Spend, Burn loop
+-- Test script trigger
 --------------------------------------------------------------------------------
 
 data AppEnv = AppEnv
@@ -395,6 +409,7 @@ runMint AppEnv{..} = do
     finalizeCurrentTransaction
     mintTx <- getTransactionId env_TX_SIGNED
     printVar "mintTx" mintTx
+    waitTillExists $ fstOutput mintTx
     pure mintTx
 
 runSpend :: AppEnv -> String -> IO String
@@ -419,6 +434,7 @@ runSpend AppEnv{..} lockedUtxo = do
     finalizeCurrentTransaction
     spendTx <- getTransactionId env_TX_SIGNED
     printVar "spendTx" spendTx
+    waitTillExists $ fstOutput spendTx
     pure spendTx
 
 runBurn :: AppEnv -> String -> IO ()
@@ -443,21 +459,35 @@ runBurn AppEnv{..} lockedUtxo = do
         ]
     finalizeCurrentTransaction
     burnTx <- getTransactionId env_TX_SIGNED
+    waitTillExists $ fstOutput burnTx
     printVar "burnTx" burnTx
 
-mintSpendBurnLoop :: IO ()
-mintSpendBurnLoop = do
-    appEnv@AppEnv{numIterations} <- makeAppEnv
-    let mint = fstOutput <$> runMint appEnv
-        spend u = do
-            waitTillExists u
-            fstOutput <$> runSpend appEnv u
-        burn u = do
-            waitTillExists u
-            runBurn appEnv u
-    Stream.iterateM spend mint
-        & Stream.take (numIterations + 1)
-        & Stream.fold (Fold.rmapM (maybe (pure ()) burn) Fold.latest)
+runCertify :: AppEnv -> IO ()
+runCertify AppEnv{..} = do
+    faucetUtxo <- getFirstUtxoAt faucetAddr
+    buildTransaction
+        [ opt "tx-in" faucetUtxo
+        , opt "tx-in-collateral" faucetUtxo
+        , opt "change-address" faucetAddr
+        , opt "certificate-file" (env_LOCAL_CONFIG_DIR </> "registration.cert")
+        , opt "certificate-script-file" (env_LOCAL_CONFIG_DIR </> "policy.plutus")
+        , opt "certificate-redeemer-value" (7 :: Int)
+        , opt "out-file" env_TX_UNSIGNED
+        ]
+    finalizeCurrentTransaction
+    txId <- getTransactionId env_TX_SIGNED
+    waitTillExists $ fstOutput txId
+    printVar "runCertify.txId" txId
+
+testScriptTrigger :: IO ()
+testScriptTrigger = do
+    appEnv <- makeAppEnv
+
+    utxo0 <- fstOutput <$> runMint appEnv
+    utxo1 <- fstOutput <$> runSpend appEnv utxo0
+    runBurn appEnv utxo1
+
+    runCertify appEnv
 
 --------------------------------------------------------------------------------
 -- Escrow

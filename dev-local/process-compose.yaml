@@ -20,8 +20,8 @@ processes:
       success_threshold: 1
       failure_threshold: 60
 
-  populate-mint-spend-burn-loop:
-    command: "cabal run dev-local -- populate mint-spend-burn-loop"
+  populate-trigger-test:
+    command: "cabal run dev-local -- populate trigger-test"
     disabled: true
 
   populate-escrow:
@@ -31,7 +31,7 @@ processes:
   script-reexecutor:
     command: "cabal run plutus-script-reexecutor -- run --node-socket devnet-env/socket/node1/sock --testnet-magic 42 --script-yaml local-config/scripts.yaml"
     depends_on:
-      cardano-testnet: 
+      cardano-testnet:
         condition: process_healthy
     readiness_probe:
       http_get:
@@ -47,12 +47,12 @@ processes:
 
   script-websocket-output:
     command: "websocat --text ws://localhost:8080/events-ws/ threadedstdio: | jq -C --unbuffered"
-    depends_on: 
+    depends_on:
       script-reexecutor:
         condition: process_healthy
 
   script-websocket-executions:
     command: "websocat --text ws://localhost:8080/events-ws/?type=execution threadedstdio: | jq -C --unbuffered"
-    depends_on: 
+    depends_on:
       script-reexecutor:
         condition: process_healthy

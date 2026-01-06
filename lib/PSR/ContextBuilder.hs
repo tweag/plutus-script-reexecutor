@@ -13,12 +13,13 @@ module PSR.ContextBuilder (
 -- Imports
 --------------------------------------------------------------------------------
 
-import Cardano.Api qualified as C
+import Cardano.Api qualified as C hiding (Certificate)
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Alonzo qualified as Alonzo
 import Control.Monad (guard)
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Map.Ordered qualified as OMap
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -26,6 +27,9 @@ import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
 import PSR.Types
+
+-- NOTE: We should use a more stable module.
+import Cardano.Api.Experimental.Certificate qualified as C
 
 --------------------------------------------------------------------------------
 -- Block Context
@@ -108,6 +112,19 @@ getInputScriptAddrs utxoMap tx =
     let utxoList = Map.elems $ Map.restrictKeys utxoMap $ getTxInSet tx
      in Set.fromList $ mapMaybe getTxOutScriptAddr utxoList
 
+getCertifyingScriptHashes :: C.Tx era -> Set C.ScriptHash
+getCertifyingScriptHashes tx =
+    case C.txCertificates (C.getTxBodyContent (C.getTxBody tx)) of
+        C.TxCertificatesNone -> Set.empty
+        C.TxCertificates _ certMap ->
+            Set.fromAscList . mapMaybe unwrapAndExtract . map fst $
+                OMap.toAscList certMap
+  where
+    unwrapAndExtract ::
+        C.Certificate (C.ShelleyLedgerEra era) -> Maybe C.ScriptHash
+    unwrapAndExtract (C.Certificate txCert) =
+        C.fromShelleyScriptHash <$> L.getScriptWitnessTxCert txCert
+
 getNonEmptyIntersection ::
     ConfigMap ->
     BlockContext era ->
@@ -117,7 +134,11 @@ getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
     let inpUtxoMap = C.unUTxO ctxInputUtxoMap
         interestingScripts =
             Map.restrictKeys cmScripts $
-                Set.union (getMintPolicies tx) (getInputScriptAddrs inpUtxoMap tx)
+                Set.unions
+                    [ getMintPolicies tx
+                    , getInputScriptAddrs inpUtxoMap tx
+                    , getCertifyingScriptHashes tx
+                    ]
     guard (not $ Map.null interestingScripts)
     pure interestingScripts
 

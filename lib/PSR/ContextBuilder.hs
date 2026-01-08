@@ -7,6 +7,8 @@ module PSR.ContextBuilder (
     mkTransactionContext,
     evaluateTransaction,
     proveAlonzoEraOnwards,
+    ContextBuilderMetrics,
+    initialiseContextBuilderMetrics,
 ) where
 
 --------------------------------------------------------------------------------
@@ -16,7 +18,9 @@ module PSR.ContextBuilder (
 import Cardano.Api qualified as C hiding (Certificate)
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Alonzo qualified as Alonzo
+import Control.Exception (evaluate)
 import Control.Monad (guard)
+import Data.Foldable (foldl', toList)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Map.Ordered qualified as OMap
@@ -26,6 +30,7 @@ import Data.Set qualified as Set
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
+import PSR.Metrics (Summary, observeDuration, regSummary)
 import PSR.Types
 
 -- NOTE: We should use a more stable module.
@@ -66,14 +71,26 @@ data BlockContext era where
         } ->
         BlockContext era
 
+data ContextBuilderMetrics = ContextBuilderMetrics
+    { mkBlockContext_query :: Summary
+    , mkTransactionContext_runtime :: Summary
+    }
+
+initialiseContextBuilderMetrics :: IO ContextBuilderMetrics
+initialiseContextBuilderMetrics = do
+    mkBlockContext_query <- regSummary "mkBlockContext_query" ""
+    mkTransactionContext_runtime <- regSummary "mkTransactionContext_runtime" ""
+    pure ContextBuilderMetrics{..}
+
 mkBlockContext ::
+    ContextBuilderMetrics ->
     C.BlockHeader ->
     C.LocalNodeConnectInfo ->
     C.ChainPoint ->
     C.AlonzoEraOnwards era ->
     [C.Tx era] ->
     IO (BlockContext era)
-mkBlockContext bh conn prevCp era txs = do
+mkBlockContext metrics bh conn prevCp era txs = do
     let sbe = C.convert era
         query =
             BlockContext bh prevCp era txs
@@ -82,7 +99,8 @@ mkBlockContext bh conn prevCp era txs = do
                 <*> eraHistoryQuery
                 <*> sysStartQuery
     -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
-    runLocalStateQueryExpr conn prevCp query
+    observeDuration metrics.mkBlockContext_query $
+        runLocalStateQueryExpr conn prevCp query
 
 --------------------------------------------------------------------------------
 -- Transaction Context
@@ -158,9 +176,25 @@ getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
     guard (not $ Map.null interestingScripts)
     pure interestingScripts
 
+-- Exists to force evaluation to happen here, instead of leaving it unevaluated
+-- in the TransactionContext
 mkTransactionContext ::
+    ContextBuilderMetrics -> ConfigMap -> BlockContext era -> C.Tx era -> IO (Maybe (TransactionContext era))
+mkTransactionContext metrics cm bc tx =
+    observeDuration metrics.mkTransactionContext_runtime $ do
+        let res = mkTransactionContext' cm bc tx
+        -- Ensure the result is actually forced so the metrics are accurate
+        !_ <- evaluate (maybe () forceExecutionResults res)
+        pure res
+  where
+    -- Forces the [Either _ _] so all elements are in WHNF, which should be enough
+    -- to ensure the work of evaluating the script is no longer a thunk.
+    forceExecutionResults :: TransactionContext era -> ()
+    forceExecutionResults = foldl' (flip seq) () . toList . ctxTransactionExecutionResult
+
+mkTransactionContext' ::
     ConfigMap -> BlockContext era -> C.Tx era -> Maybe (TransactionContext era)
-mkTransactionContext cm bc tx = do
+mkTransactionContext' cm bc tx = do
     nei <- getNonEmptyIntersection cm bc tx
     let eres = evaluateTransaction bc tx nei
     pure $ TransactionContext bc.ctxBlockHeader tx nei eres

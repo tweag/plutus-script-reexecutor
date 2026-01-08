@@ -64,6 +64,7 @@ library
     PSR.HTTP.API
     PSR.HTTP.Server
     PSR.HTTP.WebSocket.Events
+    PSR.Metrics
     PSR.Storage.Interface
     PSR.Storage.SQLite
     PSR.Streaming

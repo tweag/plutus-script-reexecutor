@@ -35,6 +35,7 @@ import Ouroboros.Network.Protocol.ChainSync.Client (
 import PSR.Chain
 import PSR.ConfigMap qualified as CM
 import PSR.ContextBuilder
+import PSR.Metrics (Counter, Summary, incCounter, incCounterBy, observeDuration, regCounter, regSummary)
 import PSR.Types
 import PlutusLedgerApi.Common (
     MajorProtocolVersion (MajorProtocolVersion),
@@ -216,36 +217,70 @@ streamChainSyncEvents ::
 streamChainSyncEvents conn points =
     Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
 
-streamBlocks :: Events -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
-streamBlocks events CM.ConfigMap{..} points =
+countTransactions :: Maybe Block -> Int
+countTransactions Nothing = 0
+countTransactions (Just (Block _ _ txs)) = length txs
+
+streamBlocks :: StreamingMetrics -> Events -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
+streamBlocks metrics events CM.ConfigMap{..} points =
     streamChainSyncEvents cmLocalNodeConn points
+        & Stream.trace (const (incCounter metrics.blocks_since_start))
         & Stream.trace (traceChainSyncEvent events)
         & fmap getEventBlock
         & Stream.postscanl unshiftFst
         -- TODO: Can we filter here to remove any block that doesn't reference
         -- any scripts we care about?
+        & Stream.trace (\(_, txs) -> incCounterBy metrics.tx_since_start (countTransactions txs))
         & Stream.mapMaybe (\(a, b) -> (a,) <$> b)
 
 streamTransactionContext ::
-    CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
-streamTransactionContext cm ctx1@BlockContext{..} =
+    ContextBuilderMetrics -> CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
+streamTransactionContext cbMetrics cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
-        & Stream.mapMaybe (mkTransactionContext cm ctx1)
+        & Stream.mapMaybeM (mkTransactionContext cbMetrics cm ctx1)
 
 --------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
 
 mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
-mainLoop events cm@CM.ConfigMap{..} points =
-    streamBlocks events cm points
-        & Stream.fold (Fold.drainMapM (uncurry consumeBlock))
+mainLoop events cm@CM.ConfigMap{..} points = do
+    metrics <- initialiseMetrics
+    cbMetrics <- initialiseContextBuilderMetrics
+    streamBlocks metrics events cm points
+        & Stream.fold (Fold.drainMapM (uncurry (consumeBlock metrics cbMetrics)))
   where
-    consumeBlock previousChainPt (Block bh sbe txList) = do
-        case proveAlonzoEraOnwards sbe of
-            Nothing -> pure ()
-            Just era -> do
-                ctx1 <- mkBlockContext bh cmLocalNodeConn previousChainPt era txList
-                streamTransactionContext cm ctx1
-                    & Stream.trace (traceTransactionExecutionResult events)
-                    & Stream.fold Fold.drain
+    consumeBlock metrics cbMetrics previousChainPt (Block bh sbe txList) =
+        observeDuration metrics.mainLoop_consumeBlock_runtime $
+            case proveAlonzoEraOnwards sbe of
+                Nothing -> pure ()
+                Just era -> do
+                    ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn previousChainPt era txList
+                    streamTransactionContext cbMetrics cm ctx1
+                        & Stream.trace (traceTransactionExecutionResult events)
+                        & Stream.fold Fold.drain
+
+--------------------------------------------------------------------------------
+-- Module metrics
+--------------------------------------------------------------------------------
+data StreamingMetrics = StreamingMetrics
+    { mainLoop_consumeBlock_runtime :: Summary
+    , blocks_since_start :: Counter
+    , tx_since_start :: Counter
+    }
+
+initialiseMetrics :: IO StreamingMetrics
+initialiseMetrics = do
+    mainLoop_consumeBlock_runtime <-
+        regSummary
+            "mainLoop_consumeBlock_runtime"
+            "Runtime summary for consumeBlock"
+    blocks_since_start <-
+        regCounter
+            "blocks_since_start"
+            "Number of transactions seen since application start"
+    tx_since_start <-
+        regCounter
+            "tx_since_start"
+            "The number of transactions seen since application start"
+    pure StreamingMetrics{..}

@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module PSR.Storage.SQLite where
+module PSR.Storage.SQLite (withSqliteStorage) where
 
 import Cardano.Api (
     BlockHeader (..),
@@ -30,12 +30,14 @@ import Data.Pool (Pool, defaultPoolConfig, newPool, withResource)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time.Clock (UTCTime)
-import Database.SQLite.Simple
+import Database.SQLite.Simple hiding (execute, executeNamed, query, queryNamed)
+import Database.SQLite.Simple qualified as SQL
 import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.FromRow
 import Database.SQLite.Simple.ToField
 import GHC.Generics (Generic)
 import PSR.Events.Interface
+import PSR.Metrics (Summary, observeDuration, regSummary)
 import PSR.Storage.Interface
 import PlutusLedgerApi.Common (Data (..), MajorProtocolVersion (..), PlutusLedgerLanguage (..))
 
@@ -56,22 +58,41 @@ openWithPragmas dbPath = do
 withSqliteStorage :: FilePath -> (Storage -> IO ()) -> IO ()
 withSqliteStorage dbPath act = do
     pool <- newPool (defaultPoolConfig (openWithPragmas dbPath) close 120 10)
-    storage <- mkStorage pool
+    metrics <- initialiseMetrics
+    storage <- mkStorage metrics pool
     act storage
 
-mkStorage :: Pool Connection -> IO Storage
-mkStorage pool = do
+execute :: forall q. (ToRow q) => Summary -> Connection -> Query -> q -> IO ()
+execute metric conn q row = observeDuration metric (SQL.execute conn q row)
+
+executeNamed :: Summary -> Connection -> Query -> [NamedParam] -> IO ()
+executeNamed metric conn q params = observeDuration metric (SQL.executeNamed conn q params)
+
+query :: forall q r. (ToRow q, FromRow r) => Summary -> Connection -> Query -> q -> IO [r]
+query metric conn q params = observeDuration metric (SQL.query conn q params)
+
+queryNamed :: forall r. (FromRow r) => Summary -> Connection -> Query -> [NamedParam] -> IO [r]
+queryNamed metric conn q params = observeDuration metric (SQL.queryNamed conn q params)
+
+mkStorage :: SqliteMetrics -> Pool Connection -> IO Storage
+mkStorage metrics pool = do
     withResource pool initSchema
     pure $ Storage{..}
   where
     getOrCreateBlockId :: Connection -> BlockHeader -> IO Integer
     getOrCreateBlockId conn (BlockHeader slotNo hash blockNo) = do
         execute
+            metrics.getOrCreateBlockId_insert
             conn
             "INSERT OR IGNORE INTO block (block_no, slot_no, hash) values (?, ?, ?)"
             (blockNo, slotNo, hash)
 
-        rows <- query conn "SELECT block_id from block where block_no = ? and slot_no = ? and hash = ?" (blockNo, slotNo, hash)
+        rows <-
+            query
+                metrics.getOrCreateBlockId_select
+                conn
+                "SELECT block_id from block where block_no = ? and slot_no = ? and hash = ?"
+                (blockNo, slotNo, hash)
         case rows of
             [Only blockId :: Only Integer] -> return blockId
             _ -> error "Can't find the inserted block"
@@ -81,11 +102,17 @@ mkStorage pool = do
         version <- mkVersion64 $ fromIntegral v
         let params = L.serialize version $ encodeCostModel costModel
         execute
+            metrics.getOrCreateCostModelParamsId_insert
             conn
             "INSERT OR IGNORE INTO cost_model_params (params) values (?)"
             (Only params)
 
-        rows <- query conn "SELECT params_id from cost_model_params where params = ?" (Only params)
+        rows <-
+            query
+                metrics.getOrCreateCostModelParamsId_select
+                conn
+                "SELECT params_id from cost_model_params where params = ?"
+                (Only params)
         case rows of
             [Only paramsId :: Only Integer] -> return paramsId
             _ -> error "Can't find the inserted block"
@@ -103,6 +130,7 @@ mkStorage pool = do
                     , ":exec_budget_mem" := toInteger exUnitsMem
                     ]
             executeNamed
+                metrics.addExecutionEvent_insert
                 conn
                 "INSERT INTO execution_event \
                 \ (context_id, trace_logs, eval_error, exec_budget_cpu, exec_budget_mem) \
@@ -129,6 +157,7 @@ mkStorage pool = do
                     ]
             rows <-
                 queryNamed
+                    metrics.addExecutionEvent_insert
                     conn
                     "INSERT INTO execution_context \
                     \ (block_id, transaction_hash, script_hash, script_name, ledger_language, major_protocol_version, datum, redeemer, script_context, cost_model_params_id) \
@@ -146,6 +175,7 @@ mkStorage pool = do
         withResource pool $ \conn -> withTransaction conn $ do
             blockId <- getOrCreateBlockId conn blockHeader
             execute
+                metrics.addCancellationEvent_insert
                 conn
                 "INSERT INTO cancellation_event (block_id, script_hash) values (?, ?)"
                 (blockId, scriptHash)
@@ -155,6 +185,7 @@ mkStorage pool = do
         withResource pool $ \conn -> withTransaction conn $ do
             blockId <- getOrCreateBlockId conn blockHeader
             execute
+                metrics.addSelectionEvent_insert
                 conn
                 "INSERT INTO selection_event (block_id) values (?)"
                 (Only blockId)
@@ -245,7 +276,7 @@ mkStorage pool = do
                 parameters = map snd paramsWithQueries <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
             rows :: [BlockHeader :. (EventType, UTCTime, Maybe ScriptHash, Maybe TraceLogs, Maybe EvalError, Maybe Integer, Maybe Integer) :. Maybe ExecutionContext] <-
-                queryNamed conn eventsQuery parameters
+                queryNamed metrics.getEvents_select conn eventsQuery parameters
 
             pure $
                 rows <&> \case
@@ -281,10 +312,68 @@ initSchema conn = withTransaction conn $ do
     forM_ (T.split (== ';') schemaQuery) $ \q -> do
         execute_ conn (Query q)
 
+-- Metrics
+
+data SqliteMetrics = SqliteMetrics
+    { getOrCreateBlockId_insert :: Summary
+    , getOrCreateBlockId_select :: Summary
+    , getOrCreateCostModelParamsId_insert :: Summary
+    , getOrCreateCostModelParamsId_select :: Summary
+    , setOrCreateBlockId_insert :: Summary
+    , setOrCreateBlockId_select :: Summary
+    , addExecutionEvent_insert :: Summary
+    , addCancellationEvent_insert :: Summary
+    , addSelectionEvent_insert :: Summary
+    , getEvents_select :: Summary
+    }
+
+initialiseMetrics :: IO SqliteMetrics
+initialiseMetrics = do
+    getOrCreateBlockId_insert <-
+        regSummary
+            "sqlite_getOrCreateBlockId_insert"
+            "Execution time of getOrCreateBlockId insert query"
+    getOrCreateBlockId_select <-
+        regSummary
+            "sqlite_getOrCreateBlockId_select"
+            "Execution time of getOrCreateBlockId select query"
+    getOrCreateCostModelParamsId_select <-
+        regSummary
+            "sqlite_getOrCreateCostModelParamsId_select"
+            "Execution time of getOrCreateCostModelParamsId select query"
+    getOrCreateCostModelParamsId_insert <-
+        regSummary
+            "sqlite_getOrCreateCostModelParamsId_insert"
+            "Execution time of getOrCreateCostModelParamsId select query"
+    setOrCreateBlockId_insert <-
+        regSummary
+            "sqlite_setOrCreateBlockId_insert"
+            "Execution time of setOrCreateBlockId insert query"
+    setOrCreateBlockId_select <-
+        regSummary
+            "sqlite_setOrCreateBlockId_select"
+            "Execution time of setOrCreateBlockId select query"
+    addExecutionEvent_insert <-
+        regSummary
+            "sqlite_addExecutionEvent_insert"
+            "Execution time of addExecutionEvent insert query"
+    addCancellationEvent_insert <-
+        regSummary
+            "sqlite_addCancellationEvent_insert"
+            "Execution time of addCancellationEvent insert query"
+    addSelectionEvent_insert <-
+        regSummary
+            "sqlite_addSelectionEvent_insert"
+            "Execution time of addSelectionEvent insert query"
+    getEvents_select <-
+        regSummary
+            "sqlite_getEvents_select"
+            "Execution time of getEvents select query"
+    pure SqliteMetrics{..}
+
 -- instances
 
 deriving instance Generic BlockHeader
-deriving instance Show BlockHeader
 deriving instance FromRow BlockHeader
 
 instance ToField PlutusLedgerLanguage where

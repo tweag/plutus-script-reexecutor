@@ -162,9 +162,11 @@ traceChainSyncEvent events = \case
 
 traceTransactionExecutionResult :: Events -> TransactionContext era -> IO ()
 traceTransactionExecutionResult events tc =
+    -- TODO: we need to use the script purpose to tell the difference between executions
     forM_ (Map.elems tc.ctxTransactionExecutionResult) $ \case
         Right (pwc, logs, exUnits) -> addEvent pwc logs exUnits Nothing
         Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) -> addEvent pwc logs exUnits (Just evalErr)
+        -- TODO: we might need to cover more errors, ex budget
         _ -> pure ()
   where
     addEvent
@@ -188,21 +190,21 @@ traceTransactionExecutionResult events tc =
                         SPlutusV4 -> PlutusV3
                 (scriptContext, datum, redeemer) = extractContextDatumRedeemer args
                 context =
-                    Left
-                        ExecutionContext
-                            { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
-                            , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
-                            , scriptHash
-                            , ledgerLanguage
-                            , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))
-                            , datum
-                            , redeemer
-                            , scriptContext
-                            , costModel = pwcCostModel
-                            , exMaxBudget = pwcExUnits
-                            }
-            void $
-                events.addExecutionEvent tc.ctxBlockHeader $
+                    ExecutionContext
+                        { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
+                        , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
+                        , scriptHash
+                        , ledgerLanguage
+                        , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))
+                        , datum
+                        , redeemer
+                        , scriptContext
+                        , costModel = pwcCostModel
+                        , exMaxBudget = pwcExUnits
+                        }
+            void $ do
+                eci <- events.addExecutionContext tc.ctxBlockHeader context
+                events.addExecutionEvent tc.ctxBlockHeader eci $
                     ExecutionEventPayload
                         { traceLogs = TraceLogs logs
                         , exUnits

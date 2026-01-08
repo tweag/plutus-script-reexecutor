@@ -43,8 +43,9 @@ withEvents s act = do
         getEvents = s.getEvents
 
     let
-        addExecutionEvent blockHeader payload@ExecutionEventPayload{..} = do
+        addExecutionEvent blockHeader executionContextId payload@ExecutionEventPayload{..} = do
             createdAt <- getCurrentTime
+            s.addExecutionEvent executionContextId traceLogs evalError exUnits
             let event =
                     Event
                         { eventType = Execution
@@ -52,12 +53,10 @@ withEvents s act = do
                         , createdAt
                         , payload = ExecutionPayload payload
                         }
-            STM.atomically $
-                writeTChan eventsChannel event
-            executionContextId <- case context of
-                Right cid -> pure cid
-                Left c -> s.addExecutionContext blockHeader c
-            s.addExecutionEvent executionContextId traceLogs evalError exUnits
+            STM.atomically $ writeTChan eventsChannel event
             pure event
+
+    let
+        addExecutionContext = s.addExecutionContext
 
     act $ Events{..}

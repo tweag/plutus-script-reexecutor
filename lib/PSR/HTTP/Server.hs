@@ -8,7 +8,9 @@ import Cardano.Api qualified as C
 import Control.Monad.IO.Class (liftIO)
 import Data.Default (def)
 import Data.Map qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
+import Data.Traversable (forM)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Prometheus (prometheus)
 import Network.WebSockets.Connection (PendingConnection)
@@ -17,7 +19,7 @@ import PSR.Evaluation
 import PSR.Events.Interface (EvalError (..), EventFilterParams (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), TraceLogs (..))
 import PSR.HTTP.API as API
 import PSR.HTTP.WebSocket.Events (eventsWebSocketHandler)
-import PSR.Storage.Interface (Storage (..))
+import PSR.Storage.Interface (FilterBy (..), Storage (..))
 import Prometheus (register)
 import Prometheus.Metric.GHC (ghcMetrics)
 import Servant
@@ -47,21 +49,23 @@ server cm storage events = siteH
     eventsHandler filterParams mName =
         liftIO $ events.getEvents (filtersWithName mName filterParams)
 
-    executeH :: Text -> ExecuteParams -> Handler Event
-    executeH nameOrHash ExecuteParams{} = do
-        (blockHeader, eci, context@ExecutionContext{..}) <- liftIO $ storage.getExecutionContextByNameOrScriptHash nameOrHash
-        case Map.lookup scriptHash cm.cmScripts of
-            Nothing -> fail $ "Can't find the script: " <> show scriptHash
-            Just rs -> do
-                (_, exUnits, logs, evalError') <- tryRunScriptInContext rs context
-                liftIO $
-                    events.addExecutionEvent blockHeader $
-                        ExecutionEventPayload
-                            { traceLogs = TraceLogs logs
-                            , exUnits
-                            , evalError = EvalError . C.docToText . C.pretty <$> evalError'
-                            , context = Right eci
-                            }
+    executeH :: Text -> ExecuteParams -> Handler [Event]
+    executeH nameOrHash ExecuteParams{..} = do
+        let filters = ByNameOrHash nameOrHash : catMaybes [ByTxId <$> _ep_tx_id, ByContextId <$> _ep_context_id]
+        contexts <- liftIO $ storage.getExecutionContexts filters
+        executions <-
+            forM contexts $ \(blockHeader, eci, context@ExecutionContext{..}) ->
+                forM (Map.lookup scriptHash cm.cmScripts) $ \rs -> do
+                    (_, exUnits, logs, evalError') <- tryRunScriptInContext rs context
+                    liftIO $
+                        events.addExecutionEvent blockHeader eci $
+                            ExecutionEventPayload
+                                { traceLogs = TraceLogs logs
+                                , exUnits
+                                , evalError = EvalError . C.docToText . C.pretty <$> evalError'
+                                , context
+                                }
+        pure $ catMaybes executions
 
     eventsWSH :: EventsWebSockets AsServer
     eventsWSH =

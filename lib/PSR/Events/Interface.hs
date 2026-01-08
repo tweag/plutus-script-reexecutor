@@ -62,7 +62,7 @@ data ExecutionEventPayload = ExecutionEventPayload
     { traceLogs :: TraceLogs
     , evalError :: Maybe EvalError
     , exUnits :: ExUnits
-    , context :: Either ExecutionContext ExecutionContextId
+    , context :: ExecutionContext
     }
     deriving (Generic)
 
@@ -79,7 +79,8 @@ data EventFilterParams = EventFilterParams
     deriving (Generic)
 
 data Events = Events
-    { addExecutionEvent :: BlockHeader -> ExecutionEventPayload -> IO Event
+    { addExecutionEvent :: BlockHeader -> ExecutionContextId -> ExecutionEventPayload -> IO Event
+    , addExecutionContext :: BlockHeader -> ExecutionContext -> IO ExecutionContextId
     , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
     , addSelectionEvent :: BlockHeader -> IO ()
     , getEventsChannel :: TChan Event
@@ -107,15 +108,11 @@ eventMatchesFilter (EventFilterParams typ time_begin time_end slot_begin slot_en
     C.BlockHeader (fromIntegral . C.unSlotNo -> slotNo) _hash _blockno = event.blockHeader
 
     mScriptName = case event.payload of
-        ExecutionPayload eep -> case eep.context of
-            Left c -> c.scriptName
-            Right _ -> Nothing
+        ExecutionPayload eep -> eep.context.scriptName
         CancellationPayload{} -> Nothing
         SelectionPayload -> Nothing
 
     mScriptHashText = fmap C.textShow $ case event.payload of
-        ExecutionPayload eep -> case eep.context of
-            Left c -> Just c.scriptHash
-            Right _ -> Nothing
+        ExecutionPayload eep -> Just eep.context.scriptHash
         CancellationPayload hash -> Just hash
         SelectionPayload -> Nothing

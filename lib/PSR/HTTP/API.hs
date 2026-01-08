@@ -11,13 +11,11 @@ module PSR.HTTP.API (
     siteApi,
 ) where
 
-import PSR.Events.Interface
-
 import Cardano.Api (BlockHeader (..))
-
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import PSR.Events.Interface
 import PlutusLedgerApi.Common (MajorProtocolVersion (..), PlutusLedgerLanguage (..))
 import Servant
 import Servant.API.WebSocket (WebSocketPending)
@@ -39,24 +37,14 @@ deriving instance ToJSON PlutusLedgerLanguage
 
 instance ToJSON ExecutionEventPayload where
     toJSON ExecutionEventPayload{..} =
-        case context of
-            Left c ->
-                object
-                    [ "transactionHash" .= toJSON c.transactionHash
-                    , "scriptHash" .= toJSON c.scriptHash
-                    , "scriptName" .= toJSON c.scriptName
-                    , "exUnits" .= toJSON exUnits
-                    , "traceLogs" .= toJSON traceLogs
-                    , "evalError" .= toJSON evalError
-                    ]
-            Right (ExecutionContextId eci) ->
-                object
-                    -- TODO: will be removed later, should return proper context details
-                    [ "context_id" .= toJSON eci
-                    , "exUnits" .= toJSON exUnits
-                    , "traceLogs" .= toJSON traceLogs
-                    , "evalError" .= toJSON evalError
-                    ]
+        object
+            [ "transactionHash" .= toJSON context.transactionHash
+            , "scriptHash" .= toJSON context.scriptHash
+            , "scriptName" .= toJSON context.scriptName
+            , "exUnits" .= toJSON exUnits
+            , "traceLogs" .= toJSON traceLogs
+            , "evalError" .= toJSON evalError
+            ]
 
 instance ToJSON EventPayload
 instance ToJSON Event
@@ -92,7 +80,8 @@ data EventsWebSockets route = EventsWebSockets
     deriving (Generic)
 
 data ExecuteParams = ExecuteParams
-    { _ep_contextId :: Maybe Integer
+    { _ep_context_id :: Maybe Integer
+    , _ep_tx_id :: Maybe Text
     }
     deriving (Generic)
 
@@ -101,7 +90,7 @@ data SiteRoutes route = SiteRoutes
         route :- "events" :> NamedRoutes EventRoutes
     , eventsWebSockets ::
         route :- "events-ws" :> NamedRoutes EventsWebSockets
-    , execute :: route :- "execute" :> Capture "name_or_script_hash" Text :> RecordParam DropPrefixExp ExecuteParams :> Get '[JSON] Event
+    , execute :: route :- "execute" :> Capture "name_or_script_hash" Text :> RecordParam DropPrefixExp ExecuteParams :> Get '[JSON] [Event]
     }
     deriving (Generic)
 

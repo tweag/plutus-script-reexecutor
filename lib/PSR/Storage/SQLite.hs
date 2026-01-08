@@ -25,7 +25,7 @@ import Data.ByteString (ByteString, toStrict)
 import Data.FileEmbed (embedStringFile, makeRelativeToProject)
 import Data.Foldable (forM_)
 import Data.Functor ((<&>))
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Pool (Pool, defaultPoolConfig, newPool, withResource)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -73,6 +73,16 @@ query metric conn q params = observeDuration metric (SQL.query conn q params)
 
 queryNamed :: forall r. (FromRow r) => Summary -> Connection -> Query -> [NamedParam] -> IO [r]
 queryNamed metric conn q params = observeDuration metric (SQL.queryNamed conn q params)
+
+mkWhereWithParams :: [(Text, NamedParam)] -> (Query, [NamedParam])
+mkWhereWithParams queriesWithParams =
+    let
+        resultQuery =
+            Query $
+                let q = T.intercalate " AND " $ map fst queriesWithParams
+                 in if T.null q then "" else " WHERE " <> q
+     in
+        (resultQuery, map snd queriesWithParams)
 
 mkStorage :: SqliteMetrics -> Pool Connection -> IO Storage
 mkStorage metrics pool = do
@@ -204,43 +214,38 @@ mkStorage metrics pool = do
                 offsetParameter = fromMaybe 0 _eventFilterParam_offset
 
                 mkNamedParam q n v = (" (" <> q <> ") " :: Text, n := v)
-                paramsWithQueries =
-                    catMaybes
-                        [ _eventFilterParam_type
-                            <&> mkNamedParam
-                                "(CASE \
-                                \ WHEN :event_type = 'execution' THEN ec.block_id \
-                                \ WHEN :event_type = 'cancellation' THEN c.block_id \
-                                \ WHEN :event_type = 'selection' THEN s.block_id \
-                                \ END) IS NOT NULL"
-                                ":event_type"
-                        , _eventFilterParam_name_or_script_hash
-                            <&> mkNamedParam
-                                "ec.script_name = :name_or_hash or HEX(ec.script_hash) = UPPER(:name_or_hash) or HEX(c.script_hash) = UPPER(:name_or_hash)"
-                                ":name_or_hash"
-                        , _eventFilterParam_slot_begin
-                            <&> mkNamedParam
-                                "b.slot_no >= :slot_begin"
-                                ":slot_begin"
-                        , _eventFilterParam_slot_end
-                            <&> mkNamedParam
-                                "b.slot_no <= :slot_end"
-                                ":slot_end"
-                        , _eventFilterParam_time_begin
-                            <&> mkNamedParam
-                                "ee.created_at >= :time_begin or c.created_at >= :time_begin or s.created_at >= :time_begin"
-                                ":time_begin"
-                        , _eventFilterParam_time_end
-                            <&> mkNamedParam
-                                "ee.created_at <= :time_end or c.created_at <= :time_end or s.created_at <= :time_end"
-                                ":time_end"
-                        ]
-
-                paramsQuery :: Query
-                paramsQuery =
-                    Query $
-                        let q = T.intercalate " and " $ map fst paramsWithQueries
-                         in if T.null q then "" else " where " <> q
+                (paramsQuery, params) =
+                    mkWhereWithParams $
+                        catMaybes
+                            [ _eventFilterParam_type
+                                <&> mkNamedParam
+                                    "(CASE \
+                                    \ WHEN :event_type = 'execution' THEN ec.block_id \
+                                    \ WHEN :event_type = 'cancellation' THEN c.block_id \
+                                    \ WHEN :event_type = 'selection' THEN s.block_id \
+                                    \ END) IS NOT NULL"
+                                    ":event_type"
+                            , _eventFilterParam_name_or_script_hash
+                                <&> mkNamedParam
+                                    "ec.script_name = :name_or_hash or HEX(ec.script_hash) = UPPER(:name_or_hash) or HEX(c.script_hash) = UPPER(:name_or_hash)"
+                                    ":name_or_hash"
+                            , _eventFilterParam_slot_begin
+                                <&> mkNamedParam
+                                    "b.slot_no >= :slot_begin"
+                                    ":slot_begin"
+                            , _eventFilterParam_slot_end
+                                <&> mkNamedParam
+                                    "b.slot_no <= :slot_end"
+                                    ":slot_end"
+                            , _eventFilterParam_time_begin
+                                <&> mkNamedParam
+                                    "ee.created_at >= :time_begin or c.created_at >= :time_begin or s.created_at >= :time_begin"
+                                    ":time_begin"
+                            , _eventFilterParam_time_end
+                                <&> mkNamedParam
+                                    "ee.created_at <= :time_end or c.created_at <= :time_end or s.created_at <= :time_end"
+                                    ":time_end"
+                            ]
 
                 eventsQuery :: Query
                 eventsQuery =
@@ -278,7 +283,7 @@ mkStorage metrics pool = do
                            \ LIMIT :limit \
                            \ OFFSET :offset"
 
-                parameters = map snd paramsWithQueries <> [":limit" := limitParameter, ":offset" := offsetParameter]
+                parameters = params <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
             rows :: [BlockHeader :. (EventType, UTCTime, Maybe ScriptHash, Maybe TraceLogs, Maybe EvalError, Maybe Integer, Maybe Integer) :. Maybe ExecutionContext] <-
                 queryNamed metrics.getEvents_select conn eventsQuery parameters
@@ -290,13 +295,13 @@ mkStorage metrics pool = do
                             payload = case eventType of
                                 Execution ->
                                     case (mTraceLogs, mExBudgetCpu, mExBudgetMem, mExecutionContext) of
-                                        (Just traceLogs, Just exBudgetCpu, Just exBudgetMem, Just execContext) ->
+                                        (Just traceLogs, Just exBudgetCpu, Just exBudgetMem, Just context) ->
                                             ExecutionPayload $
                                                 ExecutionEventPayload
                                                     { traceLogs
                                                     , evalError
                                                     , exUnits = ExUnits (fromInteger exBudgetCpu) (fromInteger exBudgetMem)
-                                                    , context = Left execContext
+                                                    , context
                                                     }
                                         _ ->
                                             -- TODO: handle the error properly
@@ -311,10 +316,25 @@ mkStorage metrics pool = do
                          in
                             Event{..}
 
-    getExecutionContextByNameOrScriptHash :: Text -> IO (BlockHeader, ExecutionContextId, ExecutionContext)
-    getExecutionContextByNameOrScriptHash scriptNameOrHash =
+    getExecutionContexts :: [FilterBy] -> IO [(BlockHeader, ExecutionContextId, ExecutionContext)]
+    getExecutionContexts filters =
         withResource pool $ \conn -> withTransaction conn $ do
             let
+                (paramsQuery, params) =
+                    mkWhereWithParams $
+                        filters <&> \case
+                            ByNameOrHash scriptNameOrHash ->
+                                ( " (HEX(ec.script_hash) = UPPER(:name_or_hash) OR ec.script_name = :name_or_hash) "
+                                , ":name_or_hash" := scriptNameOrHash
+                                )
+                            ByTxId txId ->
+                                ( " (HEX(ec.transaction_hash) = UPPER(:transaction_hash)) "
+                                , ":transaction_hash" := txId
+                                )
+                            ByContextId cid ->
+                                ( " (ec.context_id = :context_id) "
+                                , ":context_id" := cid
+                                )
                 sqlQuery =
                     "SELECT b.slot_no, b.hash, b.block_no, \
                     \ ec.context_id, \
@@ -331,18 +351,20 @@ mkStorage metrics pool = do
                     \ cmp.params \
                     \ FROM execution_context ec \
                     \ LEFT JOIN block b ON ec.block_id = b.block_id \
-                    \ LEFT JOIN cost_model_params cmp ON cmp.params_id = ec.cost_model_params_id \
-                    \ WHERE HEX(ec.script_hash) = UPPER(:name_or_hash) OR ec.script_name = :name_or_hash \
-                    \ ORDER BY ec.created_at ASC LIMIT 1"
+                    \ LEFT JOIN cost_model_params cmp ON cmp.params_id = ec.cost_model_params_id "
+                        <> paramsQuery
+                        <> " ORDER BY ec.created_at ASC LIMIT 1"
 
             rows :: [BlockHeader :. Only ExecutionContextId :. Maybe ExecutionContext] <-
-                queryNamed metrics.getExecutionContextByNameOrScriptHash_select conn sqlQuery [":name_or_hash" := scriptNameOrHash]
+                queryNamed metrics.getExecutionContextByNameOrScriptHash_select conn sqlQuery params
 
-            case rows of
-                [bh :. Only eci :. Just ec] -> pure (bh, eci, ec)
-                _ ->
-                    -- TODO: handle the error properly
-                    error "Failed to retrieve the execution context"
+            pure $
+                mapMaybe
+                    ( \case
+                        (bh :. Only eci :. Just ec) -> Just (bh, eci, ec)
+                        _ -> Nothing
+                    )
+                    rows
 
 initSchema :: Connection -> IO ()
 initSchema conn = withTransaction conn $ do

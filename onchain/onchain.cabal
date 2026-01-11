@@ -1,12 +1,15 @@
-cabal-version: 3.4
+cabal-version:      3.4
 
 -- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 
-name:          onchain
-version:       0.0.0
-build-type:    Simple
+name:               onchain
+version:            0.0.0
+build-type:         Simple
+extra-source-files:
+  src/Onchain/V2/Compiled.h
+  src/Onchain/V3/Compiled.h
 
 -- These options are required for Plinth builds
 -- Copied from: https://github.com/IntersectMBO/plinth-template
@@ -25,6 +28,9 @@ library
     Onchain.V2.Escrow
     Onchain.V2.Release
     Onchain.V2.Simple
+    Onchain.V3.Debug
+    Onchain.V3.Release
+    Onchain.V3.Simple
 
   hs-source-dirs:     src
   include-dirs:       src

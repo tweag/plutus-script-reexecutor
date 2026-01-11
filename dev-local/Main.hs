@@ -12,9 +12,7 @@ import Data.Function ((&))
 import Data.String (IsString (..))
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Export (writePlutusScript)
-import Onchain.V2.Debug qualified as Debug
 import Onchain.V2.Escrow (EscrowParams (..))
-import Onchain.V2.Release qualified as Release
 import Options.Applicative hiding (str)
 import Populate
 import Streamly.Console.Stdio qualified as Console
@@ -22,6 +20,11 @@ import Streamly.Unicode.String (str)
 import System.Environment (setEnv)
 import System.FilePath ((</>))
 import System.IO (BufferMode (..), hSetBuffering, stderr, stdout)
+
+import Onchain.V2.Debug qualified as DebugV2
+import Onchain.V2.Release qualified as ReleaseV2
+import Onchain.V3.Debug qualified as DebugV3
+import Onchain.V3.Release qualified as ReleaseV3
 
 -------------------------------------------------------------------------------
 -- CLI
@@ -94,11 +97,16 @@ opts =
 -- Create config
 --------------------------------------------------------------------------------
 
+-- TODO: Clean this up and abstract code properly
+
 createScriptsYaml :: IO ()
 createScriptsYaml = do
     policyPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "policy.plutus"
     validatorPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "validator.plutus"
     escrowPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "escrow.plutus"
+
+    tracingV3 <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "tracing-v3.plutus"
+
     writeFile
         (env_LOCAL_CONFIG_DIR </> "scripts.yaml")
         [str|
@@ -118,17 +126,32 @@ scripts:
     name: "Escrow"
     source:
       path: "#{env_LOCAL_CONFIG_DIR}/escrow-debug.plutus"
+
+  - script_hash: "#{tracingV3}"
+    name: "Tracing V3"
+    source:
+      path: "#{env_LOCAL_CONFIG_DIR}/tracing-v3-debug.plutus"
 |]
 
 createConfig :: IO ()
 createConfig = do
     runCmd_ [str|mkdir -p #{env_LOCAL_CONFIG_DIR}|]
 
-    -- Config for trigger test
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy.plutus") Release.tracingPolicy
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator.plutus") Release.tracingValidator
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy-debug.plutus") Debug.tracingPolicy
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator-debug.plutus") Debug.tracingValidator
+    ----------------------------------------------------------------------------
+    -- V3
+    ----------------------------------------------------------------------------
+
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "tracing-v3.plutus") ReleaseV3.tracingScript
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "tracing-v3-debug.plutus") DebugV3.tracingScript
+
+    ----------------------------------------------------------------------------
+    -- V2
+    ----------------------------------------------------------------------------
+
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy.plutus") ReleaseV2.tracingPolicy
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator.plutus") ReleaseV2.tracingValidator
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy-debug.plutus") DebugV2.tracingPolicy
+    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator-debug.plutus") DebugV2.tracingValidator
 
     buildStakeAddress
         [ opt "stake-script-file" (env_LOCAL_CONFIG_DIR </> "policy.plutus")
@@ -155,10 +178,10 @@ createConfig = do
     let escrowParams = EscrowParams alicePkh bobPkh deadline
     writePlutusScript
         (env_LOCAL_CONFIG_DIR </> "escrow.plutus")
-        (Release.escrowValidator escrowParams)
+        (ReleaseV2.escrowValidator escrowParams)
     writePlutusScript
         (env_LOCAL_CONFIG_DIR </> "escrow-debug.plutus")
-        (Debug.escrowValidator escrowParams)
+        (DebugV2.escrowValidator escrowParams)
     -- Finally create the scripts.yaml file
     createScriptsYaml
 

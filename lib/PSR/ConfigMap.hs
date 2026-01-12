@@ -7,6 +7,7 @@ module PSR.ConfigMap (
 ) where
 
 import Cardano.Api qualified as C
+import Cardano.Api.Shelley qualified as C
 import Control.Applicative (asum)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, withExceptT, throwE)

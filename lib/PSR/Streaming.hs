@@ -13,7 +13,7 @@ module PSR.Streaming (
 import PSR.Events.Interface (EvalError (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), TraceLogs (..))
 
 import Cardano.Api qualified as C
-import Cardano.Api.Pretty (Pretty (pretty), docToText)
+import Cardano.Api.Internal.Pretty (Pretty (pretty), docToText)
 import Cardano.Ledger.Binary (getVersion64)
 import Cardano.Ledger.Plutus (
     PlutusArgs,

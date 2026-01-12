@@ -92,6 +92,7 @@ library
     , file-embed
     , microlens
     , ordered-containers
+    , ouroboros-consensus-cardano
     , ouroboros-network-protocols
     , plutus-ledger-api
     , prometheus-client

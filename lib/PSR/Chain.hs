@@ -18,6 +18,10 @@ where
 --------------------------------------------------------------------------------
 
 import Cardano.Api qualified as C
+import Cardano.Api.Shelley qualified as C
+-- TODO: export executeLocalStateQueryExprLeashed properly 
+import Cardano.Api.Internal.IPC.Monad qualified as C
+import Ouroboros.Consensus.Cardano.Block (EraMismatch)
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Plutus (
     LegacyPlutusArgs (..),
@@ -29,6 +33,7 @@ import Cardano.Ledger.Plutus (
     unPlutusV2Args,
     unPlutusV3Args,
  )
+import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as Net.Query
 import Control.Exception (Exception, throw)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
@@ -52,7 +57,7 @@ import PlutusLedgerApi.V3 (
 data QueryException
     = QeAcquiringFailure C.AcquiringFailure
     | QeUnsupportedNtcVersionError C.UnsupportedNtcVersionError
-    | QeEraMismatch C.EraMismatch
+    | QeEraMismatch EraMismatch
     deriving stock (Show)
     deriving anyclass (Exception)
 
@@ -104,7 +109,7 @@ runLocalStateQueryExpr ::
     C.LocalStateQueryExpr C.BlockInMode C.ChainPoint C.QueryInMode () IO a ->
     IO a
 runLocalStateQueryExpr conn cp query = do
-    res <- C.executeLocalStateQueryExpr conn (C.SpecificPoint cp) query
+    res <- C.executeLocalStateQueryExprLeashed conn (Net.Query.SpecificPoint cp) query
     case res of
         Left err -> throw $ QeAcquiringFailure err
         Right val -> pure val

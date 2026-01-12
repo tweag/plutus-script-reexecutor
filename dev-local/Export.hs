@@ -13,7 +13,7 @@ import Cardano.Api (
     PlutusScript,
     writeFileTextEnvelope,
  )
-import Cardano.Api.Plutus (PlutusScript (..))
+import Cardano.Api.Shelley (PlutusScript (..))
 import Onchain.V2.Simple (CompiledCodeLang (..))
 import PlutusLedgerApi.Common (serialiseCompiledCode)
 

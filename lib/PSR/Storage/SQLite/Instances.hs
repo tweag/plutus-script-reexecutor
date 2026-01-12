@@ -5,7 +5,7 @@ module PSR.Storage.SQLite.Instances where
 import Cardano.Api (
     BlockHeader (..),
     BlockNo (..),
-    Hash (..),
+    Hash,
     ScriptHash (..),
     SlotNo (..),
     TxId,
@@ -22,6 +22,7 @@ import Control.Monad ((>=>))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Text qualified as Aeson
 import Data.ByteString (ByteString, toStrict)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Database.SQLite.Simple hiding (execute, executeNamed, query, queryNamed)
 import Database.SQLite.Simple.FromField
@@ -70,7 +71,7 @@ instance ToField (Hash BlockHeader) where
 instance FromField (Hash BlockHeader) where
     fromField f = do
         bs <- fromField f
-        case deserialiseFromRawBytes (C.proxyToAsType C.Proxy) bs of
+        case deserialiseFromRawBytes (C.proxyToAsType Proxy) bs of
             Right v -> pure v
             Left err -> returnError ConversionFailed f (show err)
 

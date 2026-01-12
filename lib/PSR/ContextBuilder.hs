@@ -15,8 +15,9 @@ module PSR.ContextBuilder (
 -- Imports
 --------------------------------------------------------------------------------
 
-import Cardano.Api qualified as C hiding (Certificate)
+import Cardano.Api qualified as C
 import Cardano.Api.Ledger qualified as L
+import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Alonzo qualified as Alonzo
 import Control.Exception (evaluate)
 import Control.Monad (guard)
@@ -32,8 +33,6 @@ import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
 import PSR.Metrics (Summary, observeDuration, regSummary)
 import PSR.Types
-
-import Cardano.Api.Certificate qualified as C
 
 --------------------------------------------------------------------------------
 -- Block Context
@@ -159,7 +158,7 @@ getRewardingScriptHashes tx =
         C.TxWithdrawals _ withdrawals ->
             Set.fromList $ mapMaybe extractHashFromTuple withdrawals
   where
-    extractHashFromTuple :: (C.StakeAddress, C.Coin, w) -> Maybe C.ScriptHash
+    extractHashFromTuple :: (C.StakeAddress, L.Coin, w) -> Maybe C.ScriptHash
     extractHashFromTuple (stakeAddr, _, _) =
         case stakeAddr of
             C.StakeAddress _ cred ->

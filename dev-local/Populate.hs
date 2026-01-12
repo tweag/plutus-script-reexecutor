@@ -16,6 +16,7 @@ module Populate (
     walletKeyHash,
     buildStakeAddress,
     genRegCertStakeAddress,
+    genDeregCertStakeAddress,
     -- Globals
     env_LOCAL_CONFIG_DIR,
     env_POPULATE_WORK_DIR,
@@ -225,6 +226,11 @@ genRegCertStakeAddress args =
     runCmd "cardano-cli conway stake-address registration-certificate" args
         & drain
 
+genDeregCertStakeAddress :: [CmdOption] -> IO ()
+genDeregCertStakeAddress args =
+    runCmd "cardano-cli conway stake-address deregistration-certificate" args
+        & drain
+
 getTransactionId :: String -> IO String
 getTransactionId txSigned =
     runCmd
@@ -347,14 +353,21 @@ data AppEnv = AppEnv
     , faucetAddr :: String
     , policyFilePath :: FilePath
     , validatorFilePath :: FilePath
+    , stakeAddrFilePath :: FilePath
+    , regCertFilePath :: FilePath
+    , deregCertFilePath :: FilePath
     , numIterations :: Int
     , assetAmount :: String
     }
 
-makeAppEnv :: IO AppEnv
-makeAppEnv = do
-    let policyFilePath = env_LOCAL_CONFIG_DIR </> "policy.plutus"
-        validatorFilePath = env_LOCAL_CONFIG_DIR </> "validator.plutus"
+makeAppEnv :: String -> IO AppEnv
+makeAppEnv scriptsDirName = do
+    let scriptsDirPath = env_LOCAL_CONFIG_DIR </> scriptsDirName
+        policyFilePath = scriptsDirPath </> "policy.plutus"
+        validatorFilePath = scriptsDirPath </> "validator.plutus"
+        stakeAddrFilePath = scriptsDirPath </> "script.stake.addr"
+        regCertFilePath = scriptsDirPath </> "registration.cert"
+        deregCertFilePath = scriptsDirPath </> "deregistration.cert"
         tokenName = "TEST_TOKEN"
         assetAmount = "100"
         numIterations = 10
@@ -377,6 +390,9 @@ makeAppEnv = do
             , validatorFilePath = validatorFilePath
             , assetAmount = assetAmount
             , numIterations = numIterations
+            , stakeAddrFilePath = stakeAddrFilePath
+            , regCertFilePath = regCertFilePath
+            , deregCertFilePath = deregCertFilePath
             }
 
 finalizeCurrentTransaction :: IO ()
@@ -462,27 +478,50 @@ runBurn AppEnv{..} lockedUtxo = do
     waitTillExists $ fstOutput burnTx
     printVar "burnTx" burnTx
 
-runCertify :: AppEnv -> IO ()
-runCertify AppEnv{..} = do
+runCertifyReg :: AppEnv -> IO ()
+runCertifyReg AppEnv{..} = do
+    printStep "Certify - Reg"
+
     faucetUtxo <- getFirstUtxoAt faucetAddr
     buildTransaction
         [ opt "tx-in" faucetUtxo
         , opt "tx-in-collateral" faucetUtxo
         , opt "change-address" faucetAddr
-        , opt "certificate-file" (env_LOCAL_CONFIG_DIR </> "registration.cert")
-        , opt "certificate-script-file" (env_LOCAL_CONFIG_DIR </> "policy.plutus")
+        , opt "certificate-file" regCertFilePath
+        , opt "certificate-script-file" policyFilePath
         , opt "certificate-redeemer-value" (7 :: Int)
         , opt "out-file" env_TX_UNSIGNED
         ]
     finalizeCurrentTransaction
     txId <- getTransactionId env_TX_SIGNED
     waitTillExists $ fstOutput txId
-    printVar "runCertify.txId" txId
+    printVar "runCertifyReg.txId" txId
+
+runCertifyDereg :: AppEnv -> IO ()
+runCertifyDereg AppEnv{..} = do
+    printStep "Certify - Dereg"
+
+    faucetUtxo <- getFirstUtxoAt faucetAddr
+    buildTransaction
+        [ opt "tx-in" faucetUtxo
+        , opt "tx-in-collateral" faucetUtxo
+        , opt "change-address" faucetAddr
+        , opt "certificate-file" deregCertFilePath
+        , opt "certificate-script-file" policyFilePath
+        , opt "certificate-redeemer-value" (7 :: Int)
+        , opt "out-file" env_TX_UNSIGNED
+        ]
+    finalizeCurrentTransaction
+    txId <- getTransactionId env_TX_SIGNED
+    waitTillExists $ fstOutput txId
+    printVar "runCertifyDereg.txId" txId
 
 runReward :: AppEnv -> IO ()
 runReward AppEnv{..} = do
+    printStep "Reward"
+
     faucetUtxo <- getFirstUtxoAt faucetAddr
-    stakeAddr <- readFile $ env_LOCAL_CONFIG_DIR </> "script.stake.addr"
+    stakeAddr <- readFile stakeAddrFilePath
     buildTransaction
         [ opt "tx-in" faucetUtxo
         , opt "tx-in-collateral" faucetUtxo
@@ -490,7 +529,7 @@ runReward AppEnv{..} = do
         , -- NOTE: +0 is a handy way to trigger the script without involving any
           -- funds.
           opt "withdrawal" [str|#{stakeAddr}+0|]
-        , opt "withdrawal-script-file" (env_LOCAL_CONFIG_DIR </> "policy.plutus")
+        , opt "withdrawal-script-file" policyFilePath
         , opt "withdrawal-redeemer-value" (9 :: Int)
         , opt "out-file" env_TX_UNSIGNED
         ]
@@ -499,16 +538,19 @@ runReward AppEnv{..} = do
     waitTillExists $ fstOutput txId
     printVar "runReward.txId" txId
 
-testScriptTrigger :: IO ()
-testScriptTrigger = do
-    appEnv <- makeAppEnv
-
+testScriptTriggerWith :: AppEnv -> IO ()
+testScriptTriggerWith appEnv = do
     utxo0 <- fstOutput <$> runMint appEnv
     utxo1 <- fstOutput <$> runSpend appEnv utxo0
     runBurn appEnv utxo1
-
-    runCertify appEnv
+    runCertifyReg appEnv
     runReward appEnv
+    runCertifyDereg appEnv
+
+testScriptTrigger :: IO ()
+testScriptTrigger = do
+    testScriptTriggerWith =<< makeAppEnv "tracing-plutus-v2"
+    testScriptTriggerWith =<< makeAppEnv "tracing-plutus-v3"
 
 --------------------------------------------------------------------------------
 -- Escrow

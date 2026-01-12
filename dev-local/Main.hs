@@ -8,11 +8,13 @@ module Main (main) where
 -- Imports
 -------------------------------------------------------------------------------
 
+import Cardano.Api (IsPlutusScriptLanguage)
 import Data.Function ((&))
 import Data.String (IsString (..))
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Export (writePlutusScript)
 import Onchain.V2.Escrow (EscrowParams (..))
+import Onchain.V2.Simple (CompiledCodeLang)
 import Options.Applicative hiding (str)
 import Populate
 import Streamly.Console.Stdio qualified as Console
@@ -97,77 +99,93 @@ opts =
 -- Create config
 --------------------------------------------------------------------------------
 
--- TODO: Clean this up and abstract code properly
+-- TODO: Abstract escrow into v2 and v3.
 
-createScriptsYaml :: IO ()
-createScriptsYaml = do
-    policyPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "policy.plutus"
-    validatorPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "validator.plutus"
-    escrowPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "escrow.plutus"
+tracingYamlContents :: String -> IO String
+tracingYamlContents scriptsDirName = do
+    let scriptsDirPath = env_LOCAL_CONFIG_DIR </> scriptsDirName
 
-    tracingV3 <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "tracing-v3.plutus"
+    policyPolicyId <- getPolicyId $ scriptsDirPath </> "policy.plutus"
+    validatorPolicyId <- getPolicyId $ scriptsDirPath </> "validator.plutus"
 
-    writeFile
-        (env_LOCAL_CONFIG_DIR </> "scripts.yaml")
+    pure
         [str|
-scripts:
-
   - script_hash: "#{policyPolicyId}"
     name: "Local Policy"
     source:
-      path: "#{env_LOCAL_CONFIG_DIR}/policy-debug.plutus"
+      path: "#{scriptsDirPath}/policy-debug.plutus"
 
   - script_hash: "#{validatorPolicyId}"
     name: "Local Validator"
     source:
-      path: "#{env_LOCAL_CONFIG_DIR}/validator-debug.plutus"
+      path: "#{scriptsDirPath}/validator-debug.plutus"
+|]
 
+escrowYamlContents :: IO String
+escrowYamlContents = do
+    escrowPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "escrow.plutus"
+    pure
+        [str|
   - script_hash: "#{escrowPolicyId}"
     name: "Escrow"
     source:
       path: "#{env_LOCAL_CONFIG_DIR}/escrow-debug.plutus"
-
-  - script_hash: "#{tracingV3}"
-    name: "Tracing V3"
-    source:
-      path: "#{env_LOCAL_CONFIG_DIR}/tracing-v3-debug.plutus"
 |]
 
-createConfig :: IO ()
-createConfig = do
-    runCmd_ [str|mkdir -p #{env_LOCAL_CONFIG_DIR}|]
+createScriptsYaml :: IO ()
+createScriptsYaml = do
+    tracingV2 <- tracingYamlContents "tracing-plutus-v2"
+    tracingV3 <- tracingYamlContents "tracing-plutus-v3"
+    escrowV2 <- escrowYamlContents
+    writeFile
+        (env_LOCAL_CONFIG_DIR </> "scripts.yaml")
+        [str|
+scripts:
+#{tracingV2}
+#{tracingV3}
+#{escrowV2}
+|]
 
-    ----------------------------------------------------------------------------
-    -- V3
-    ----------------------------------------------------------------------------
+createTracingConfig ::
+    (IsPlutusScriptLanguage lang) =>
+    String ->
+    CompiledCodeLang lang pol ->
+    CompiledCodeLang lang val ->
+    CompiledCodeLang lang pol ->
+    CompiledCodeLang lang val ->
+    IO ()
+createTracingConfig scriptsDirName relP relV debP debV = do
+    runCmd_ [str|mkdir -p #{env_LOCAL_CONFIG_DIR}/#{scriptsDirName}|]
 
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "tracing-v3.plutus") ReleaseV3.tracingScript
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "tracing-v3-debug.plutus") DebugV3.tracingScript
+    let scriptsDirPath = env_LOCAL_CONFIG_DIR </> scriptsDirName
 
-    ----------------------------------------------------------------------------
-    -- V2
-    ----------------------------------------------------------------------------
-
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy.plutus") ReleaseV2.tracingPolicy
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator.plutus") ReleaseV2.tracingValidator
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "policy-debug.plutus") DebugV2.tracingPolicy
-    writePlutusScript (env_LOCAL_CONFIG_DIR </> "validator-debug.plutus") DebugV2.tracingValidator
+    writePlutusScript (scriptsDirPath </> "policy.plutus") relP
+    writePlutusScript (scriptsDirPath </> "validator.plutus") relV
+    writePlutusScript (scriptsDirPath </> "policy-debug.plutus") debP
+    writePlutusScript (scriptsDirPath </> "validator-debug.plutus") debV
 
     buildStakeAddress
-        [ opt "stake-script-file" (env_LOCAL_CONFIG_DIR </> "policy.plutus")
-        , opt "out-file" (env_LOCAL_CONFIG_DIR </> "script.stake.addr")
+        [ opt "stake-script-file" (scriptsDirPath </> "policy.plutus")
+        , opt "out-file" (scriptsDirPath </> "script.stake.addr")
         ]
+    -- 400_000 here comes from:
+    -- cardano-cli conway query protocol-parameters
+    --    \ --testnet-magic 42
+    --    \ --socket-path "devnet-env/socket/node1/sock"
+    --    \ | jq .stakeAddressDeposit
     genRegCertStakeAddress
-        [ opt "stake-script-file" (env_LOCAL_CONFIG_DIR </> "policy.plutus")
-        , opt "out-file" (env_LOCAL_CONFIG_DIR </> "registration.cert")
-        , -- 400_000 here comes from:
-          -- cardano-cli conway query protocol-parameters
-          --    \ --testnet-magic 42
-          --    \ --socket-path "devnet-env/socket/node1/sock"
-          --    \ | jq .stakeAddressDeposit
-          opt "key-reg-deposit-amt" (400_000 :: Int)
+        [ opt "stake-script-file" (scriptsDirPath </> "policy.plutus")
+        , opt "out-file" (scriptsDirPath </> "registration.cert")
+        , opt "key-reg-deposit-amt" (400_000 :: Int)
+        ]
+    genDeregCertStakeAddress
+        [ opt "stake-script-file" (scriptsDirPath </> "policy.plutus")
+        , opt "out-file" (scriptsDirPath </> "deregistration.cert")
+        , opt "key-reg-deposit-amt" (400_000 :: Int)
         ]
 
+createEscrowConfig :: IO ()
+createEscrowConfig = do
     -- Config for Escrow
     alice <- mkWallet env_LOCAL_CONFIG_DIR "alice"
     bob <- mkWallet env_LOCAL_CONFIG_DIR "bob"
@@ -184,6 +202,26 @@ createConfig = do
         (DebugV2.escrowValidator escrowParams)
     -- Finally create the scripts.yaml file
     createScriptsYaml
+
+createConfig :: IO ()
+createConfig = do
+    runCmd_ [str|mkdir -p #{env_LOCAL_CONFIG_DIR}|]
+
+    createTracingConfig
+        "tracing-plutus-v3"
+        ReleaseV3.tracingScript
+        ReleaseV3.tracingScript
+        DebugV3.tracingScript
+        DebugV3.tracingScript
+
+    createTracingConfig
+        "tracing-plutus-v2"
+        ReleaseV2.tracingPolicy
+        ReleaseV2.tracingValidator
+        DebugV2.tracingPolicy
+        DebugV2.tracingValidator
+
+    createEscrowConfig
 
 --------------------------------------------------------------------------------
 -- Main

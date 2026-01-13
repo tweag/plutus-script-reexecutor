@@ -26,8 +26,8 @@ import Servant
 import Servant.QueryParam.Server.Record ()
 import Servant.Server.Generic (AsServer)
 
-server :: ConfigMap -> Storage -> Events -> Server ServerAPI
-server cm storage events = siteH
+server :: ConfigMap -> Storage -> Events -> Server FullAPI
+server cm storage events = siteH :<|> serveOpenApiUI
   where
     siteH :: SiteRoutes AsServer
     siteH =
@@ -88,5 +88,5 @@ server cm storage events = siteH
 run :: ConfigMap -> Storage -> Events -> Warp.Port -> IO ()
 run cm storage events port = do
     _ <- register ghcMetrics
-    let mainApp = serve siteApi (server cm storage events)
+    let mainApp = serve fullApi (server cm storage events)
     Warp.run port (prometheus def mainApp)

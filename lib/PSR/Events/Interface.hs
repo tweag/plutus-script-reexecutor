@@ -17,6 +17,7 @@ import Cardano.Api (
  )
 import Cardano.Api qualified as C
 import Data.Maybe (isNothing)
+import Data.OpenApi (ToSchema)
 
 data EventType
     = Execution
@@ -29,6 +30,10 @@ data EventPayload
     | CancellationPayload ScriptHash
     | SelectionPayload
     deriving (Generic)
+
+instance ToSchema TraceLogs
+instance ToSchema EvalError
+instance ToSchema EventPayload
 
 data Event = Event
     { eventType :: EventType
@@ -54,7 +59,11 @@ data ExecutionContext = ExecutionContext
     }
     deriving (Show, Generic)
 
-newtype EvalError = EvalError Text deriving (Show) via Text
+instance ToSchema ExecutionContext
+
+newtype EvalError = EvalError Text
+    deriving (Generic)
+    deriving (Show) via Text
 
 newtype ExecutionContextId = ExecutionContextId {getExecutionContextId :: Integer}
 
@@ -65,6 +74,8 @@ data ExecutionEventPayload = ExecutionEventPayload
     , context :: ExecutionContext
     }
     deriving (Generic)
+
+instance ToSchema ExecutionEventPayload
 
 data EventFilterParams = EventFilterParams
     { _eventFilterParam_type :: Maybe EventType

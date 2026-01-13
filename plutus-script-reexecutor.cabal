@@ -87,6 +87,7 @@ library
     , data-default
     , file-embed
     , microlens
+    , openapi3
     , ordered-containers
     , ouroboros-network-protocols
     , plutus-ledger-api
@@ -94,9 +95,12 @@ library
     , prometheus-metrics-ghc
     , resource-pool
     , serialise
+    , servant-openapi3
     , servant-queryparam-core
+    , servant-queryparam-openapi3
     , servant-queryparam-server
     , servant-server
+    , servant-swagger-ui
     , servant-websockets
     , sqlite-simple
     , stm

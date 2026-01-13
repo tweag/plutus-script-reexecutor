@@ -9,18 +9,28 @@ module PSR.HTTP.API (
     Event (..),
     ExecuteParams (..),
     siteApi,
+    FullAPI,
+    fullApi,
+    serveOpenApiUI,
 ) where
 
 import Cardano.Api (BlockHeader (..))
 import Data.Aeson (ToJSON (..), object, (.=))
+import Data.Function ((&))
+import Data.OpenApi (OpenApi, OpenApiType (OpenApiString), ToParamSchema (..), ToSchema, description, enum_, info, title, type_, version)
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Lens.Micro ((.~), (?~))
 import PSR.Events.Interface
 import PlutusLedgerApi.Common (MajorProtocolVersion (..), PlutusLedgerLanguage (..))
 import Servant
 import Servant.API.WebSocket (WebSocketPending)
+import Servant.OpenApi (HasOpenApi (..))
+import Servant.QueryParam.OpenApi.Record ()
 import Servant.QueryParam.Record (RecordParam)
+import Servant.QueryParam.Server.Record ()
 import Servant.QueryParam.TypeLevel (DropPrefix, Eval, Exp)
+import Servant.Swagger.UI (SwaggerSchemaUI, swaggerSchemaUIServer)
 
 instance ToJSON BlockHeader where
     toJSON (BlockHeader slotNo hash blockNo) =
@@ -48,6 +58,9 @@ instance ToJSON ExecutionEventPayload where
 
 instance ToJSON EventPayload
 instance ToJSON Event
+instance ToSchema EventType
+instance ToSchema BlockHeader
+instance ToSchema Event
 
 data DropPrefixExp :: sym -> Exp sym
 type instance Eval (DropPrefixExp sym) = DropPrefix sym
@@ -60,6 +73,12 @@ instance FromHttpApiData EventType where
         "selection" -> pure Selection
         "cancellation" -> pure Cancellation
         _ -> Left "Unknown event type"
+
+instance ToParamSchema EventType where
+    toParamSchema _ =
+        mempty
+            & (type_ ?~ OpenApiString)
+            & (enum_ ?~ ["execution", "selection", "cancellation"])
 
 type EventFilterParams' = RecordParam DropPrefixExp EventFilterParams
 
@@ -98,3 +117,20 @@ type ServerAPI = NamedRoutes SiteRoutes
 
 siteApi :: Proxy ServerAPI
 siteApi = Proxy
+
+type OpenAPIUI = SwaggerSchemaUI "swagger-ui" "openapi.json"
+
+serveOpenApiUI :: Server OpenAPIUI
+serveOpenApiUI = swaggerSchemaUIServer siteOpenAPI
+
+siteOpenAPI :: OpenApi
+siteOpenAPI =
+    toOpenApi siteApi
+        & (info . title .~ "Plutus Script Re-executor")
+        & (info . version .~ "1.0") -- TODO: Get this from Cabal
+        & (info . description ?~ "HTTP API to interact with the Plutus Script Re-executor")
+
+type FullAPI = ServerAPI :<|> OpenAPIUI
+
+fullApi :: Proxy FullAPI
+fullApi = Proxy

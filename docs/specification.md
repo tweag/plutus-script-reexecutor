@@ -152,7 +152,17 @@ Returns all events relevant to the provided `script_hash` or `name` with filteri
 - `limit`: Results per page (default: 50, max: 1000)
 - `offset`: Pagination offset (default: 0)
 
-**Response**: JSON array of all relevant events to the provided `script_hash` with basic metadata (block hash, slot, timestamp).
+**Response**: JSON array of all events relevant to the provided `script_hash` with basic metadata (block hash, slot, timestamp).
+
+##### GET /execute/{ script_hash | name or alias }
+
+Executes the provided hash in the latest execution context if no parameters are provided.
+
+**Query Parameters**:
+- `context_id`: executes script in the provided execution context
+- `tx_id`: executes script in the provided transaction hash
+
+**Response**: JSON array of the execution events relevant to the provided `script_hash` with basic metadata (block hash, slot, timestamp).
 
 ##### GET /metrics
 
@@ -312,6 +322,16 @@ We can stop the communication by removing all peers and by pausing adding new on
 
 **Configuration**: we might use a similar limit as the limit of eagerness (2,160) to control the window of blocks accessible to the node on leash. 
 
+**Strategy 3**:
+
+The cardano-node already uses the "Limit on Eagerness" mechanism to limit itself in pursuing new blocks:
+
+>The LoE prevents the syncing node from selecting a block that is more than Kcp ahead of the LoE anchor, the intersection of all current peers' header chains.
+
+https://ouroboros-consensus.cardano.intersectmbo.org/docs/references/miscellaneous/genesis_design/#the-limit-on-eagerness-component
+
+We can implement leashing there utilising the existing LoE component.
+
 #### 7. Configuration map
 
 **Purpose**: allows to user to specify which scripts should be executed under specified `script_hash`. 
@@ -365,44 +385,98 @@ Block:
 - `hash`: Header hash 
 - `slot`: Slot number 
 
+Execution context:
+- `context_id`: Id of the context
+- `block_hash`: Block header hash
+- `cost_model_params_id`: Id of the cost model params 
+- `transaction_hash`: Transaction id 
+- `script_hash`: Script hash
+- `script_name`: Name of the script (optional)
+- `ledger_language`: The version the plutus ledger language
+- `major_protocol_version`: Major protocol version
+- `datum`: Datum of the script (optional)
+- `redeemer`: Redeemer of the script (optional),
+- `script_context`: Script context 
+- `exec_budget_max_cpu`: Max budget cpu
+- `exec_budget_max_mem`: Max budget mem
+- `created_at`: Timestamp
+
+Cost model params:
+- `params_id`: Id of params
+- `params`: Parameters
+
 Execution event:
-- `block_number`: Block number 
-- `transaction_hash`: Transaction hash 
-- `script_hash`: `ScriptHash`
-- `name`: Name or alias (optional)
-- `script_context`: Relevant to the execution `ScriptContext`
-- `trace`: Trace of the execution 
+- `event_id`: Id of the event
+- `context_id`: Id of the execution event 
+- `trace_logs`: Trace of the execution 
+- `exec_budget_cpu`: Consumed budget cpu
+- `exec_budget_mem`: Consumed budget mem
+- `eval_error`: Evaluation error (optional)
+- `created_at`: Timestamp
 
 Cancellation event:
-- `block_number`: Block number 
+- `event_id`: Id of the event
+- `block_hash`: Block header hash 
 - `script_hash`: Script hash that was cancelled
+- `created_at`: Timestamp
 
 Selection event:
-- `block_number`: Block number 
+- `event_id`: Id of the event
+- `block_hash`: Block header hash 
+- `created_at`: Timestamp
+
+**Schema**:
 
 ```mermaid
 erDiagram
-    EXECUTION_EVENT }o--|| BLOCK : contains
-    EXECUTION_EVENT {
-        int blockNumber
-        binary transactionHash
-        binary scriptHash
-        string name
-        binary scriptContext
-        string trace
+    EXECUTION_CONTEXT }o--|| BLOCK : contains
+    EXECUTION_EVENT }o--|| EXECUTION_CONTEXT : contains
+    EXECUTION_CONTEXT {
+        int context_id
+        int cost_model_params_id
+        binary block_hash
+        binary transaction_hash
+        binary script_hash
+        int ledger_language
+        int major_protocol_version
+        string script_name
+        binary datum 
+        binary redeemer 
+        binary script_context
+        int exec_budget_max_cpu
+        int exec_budget_max_mem 
+        timestamp created_at
     }
+    EXECUTION_EVENT {
+        int event_id 
+        int context_id 
+        string trace_logs
+        string eval_error 
+        int exec_budget_cpu
+        int exec_budget_mem 
+        timestamp created_at
+    }
+    COST_MODEL_PARAMS {
+        int params_id
+        binary params
+    }
+    EXECUTION_CONTEXT }o--|| COST_MODEL_PARAMS : contains
     BLOCK ||--o{ SELECTION_EVENT : contains
     BLOCK ||--o{ CANCELLATION_EVENT : contains
     BLOCK {
-        int blockNumber
-        int slotNumber
+        int block_number
+        int slot_number
         binary hash
     }
     SELECTION_EVENT {
-        int blockNumber
+        int event_id 
+        binary block_hash
+        timestamp created_at
     }
     CANCELLATION_EVENT {
-        int blockNumber
-        binary scriptHash 
+        int event_id 
+        binary block_hash
+        binary script_hash 
+        timestamp created_at
     }
 ```

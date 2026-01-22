@@ -8,6 +8,7 @@ module PSR.Types (
     TransactionExecutionResult,
     RedeemerReportWithLogs,
     PwcExecutionResult,
+    PreEvaluationPlutusError (..),
 ) where
 
 --------------------------------------------------------------------------------
@@ -44,6 +45,12 @@ deriving instance Show Block
 
 type ScriptSubtitutionInfo era = Map C.ScriptHash [L.AlonzoScript era]
 
+-- NOTE: We are omiting a lot of information here. We can add it on demand if
+-- required.
+data PreEvaluationPlutusError
+    = PeRedeemerPointsToUnknownScriptHash
+    | PeMissingScript
+
 -- NOTE: The two levels of nesting in Either depict different type of
 -- errors. Combining them loses information.
 --
@@ -55,7 +62,7 @@ type TransactionExecutionResult =
     Map
         C.ScriptWitnessIndex
         ( Either
-            C.ScriptExecutionError
+            PreEvaluationPlutusError
             [ Either
                 C.ScriptExecutionError
                 (L.PlutusWithContext, [Text], L.ExUnits)
@@ -67,9 +74,7 @@ type PwcExecutionResult era =
         (L.TransactionScriptFailure era)
         (L.PlutusWithContext, [Text], L.ExUnits)
 
--- TODO: In the nested Either, the first level of error is too elaborate. We
--- should use a custom type to represent a MissingScript instead.
 type RedeemerReportWithLogs era =
     Map
         (L.PlutusPurpose L.AsIx era)
-        (Either (L.TransactionScriptFailure era) [PwcExecutionResult era])
+        (Either PreEvaluationPlutusError [PwcExecutionResult era])

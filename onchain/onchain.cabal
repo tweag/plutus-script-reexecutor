@@ -30,6 +30,7 @@ library
     Onchain.V2.Simple
     Onchain.V3.Debug
     Onchain.V3.Release
+    Onchain.V3.ShowBS
     Onchain.V3.Simple
 
   hs-source-dirs:     src

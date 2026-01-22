@@ -111,7 +111,7 @@ data TransactionContext era where
     TransactionContext ::
         { ctxBlockHeader :: C.BlockHeader
         , ctxTransaction :: C.Tx era
-        , ctxRelevantScripts :: Map.Map C.ScriptHash ResolvedScript
+        , ctxRelevantScripts :: Map.Map C.ScriptHash [ResolvedScript]
         , ctxTransactionExecutionResult :: TransactionExecutionResult
         } ->
         TransactionContext era
@@ -174,7 +174,7 @@ getNonEmptyIntersection ::
     ConfigMap ->
     BlockContext era ->
     C.Tx era ->
-    Maybe (Map.Map C.ScriptHash ResolvedScript)
+    Maybe (Map.Map C.ScriptHash [ResolvedScript])
 getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
     let inpUtxoMap = C.unUTxO ctxInputUtxoMap
         interestingScripts =
@@ -219,7 +219,7 @@ evaluateTransaction ::
     forall era.
     BlockContext era ->
     C.Tx era ->
-    Map.Map C.ScriptHash ResolvedScript ->
+    Map.Map C.ScriptHash [ResolvedScript] ->
     TransactionExecutionResult
 evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
     case ctxAlonzoEraOnwards of
@@ -241,4 +241,4 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
             tx
 
     mkLedgerScript ResolvedScript{..} = C.toShelleyScript <$> C.toScriptInEra (C.convert ctxAlonzoEraOnwards) rsScriptFileContent
-    subMap = Map.mapMaybe mkLedgerScript scriptMap
+    subMap = Map.map (mapMaybe mkLedgerScript) scriptMap

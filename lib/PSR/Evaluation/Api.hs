@@ -16,21 +16,17 @@ import Cardano.Ledger.Api qualified as L
 import Cardano.Ledger.Plutus qualified as Plutus
 
 import Cardano.Api.Shelley hiding (evaluateTransactionExecutionUnitsShelley)
-import Data.Bifunctor (Bifunctor (first))
+import Data.Bifunctor (Bifunctor (bimap, first))
 import Data.ByteString.Short (ShortByteString)
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Text (Text)
 import GHC.Exts (IsList (..))
 
 import PSR.Evaluation.Ledger (evalTxExUnitsWithLogs)
-import PSR.Types (ScriptSubtitutionInfo, TransactionExecutionResult)
+import PSR.Types (RedeemerReportWithLogs, ScriptSubtitutionInfo, TransactionExecutionResult)
 
 --------------------------------------------------------------------------------
 -- Evaluators
 --------------------------------------------------------------------------------
-
-type EvalTxExecutionUnitsLog = [Text]
 
 type PlutusScriptBytes = ShortByteString
 
@@ -82,14 +78,15 @@ evaluateTransactionExecutionUnitsShelley ssi sbe systemstart epochInfo (LedgerPr
     fromLedgerScriptExUnitsMap ::
         (Alonzo.AlonzoEraScript (ShelleyLedgerEra era)) =>
         AlonzoEraOnwards era ->
-        Map
-            (L.PlutusPurpose L.AsIx (ShelleyLedgerEra era))
-            (Either (L.TransactionScriptFailure (ShelleyLedgerEra era)) (Plutus.PlutusWithContext, EvalTxExecutionUnitsLog, Alonzo.ExUnits)) ->
-        Map ScriptWitnessIndex (Either ScriptExecutionError (Plutus.PlutusWithContext, EvalTxExecutionUnitsLog, Alonzo.ExUnits))
+        RedeemerReportWithLogs (ShelleyLedgerEra era) ->
+        TransactionExecutionResult
     fromLedgerScriptExUnitsMap aOnwards exmap =
         fromList
             [ ( toScriptIndex aOnwards rdmrptr
-              , first (fromAlonzoScriptExecutionError aOnwards) exunitsOrFailure
+              , bimap
+                    (fromAlonzoScriptExecutionError aOnwards)
+                    (map (first (fromAlonzoScriptExecutionError aOnwards)))
+                    exunitsOrFailure
               )
             | (rdmrptr, exunitsOrFailure) <- toList exmap
             ]

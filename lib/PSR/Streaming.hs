@@ -163,13 +163,28 @@ traceChainSyncEvent events = \case
 traceTransactionExecutionResult :: Events -> TransactionContext era -> IO ()
 traceTransactionExecutionResult events tc =
     -- TODO: we need to use the script purpose to tell the difference between executions
+    -- TODO: Nesting Eithers made this more difficult to read. We need to clean
+    -- this up
     forM_ (Map.elems tc.ctxTransactionExecutionResult) $ \case
-        Right (pwc, logs, exUnits) -> addEvent pwc logs exUnits Nothing
-        Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) -> addEvent pwc logs exUnits (Just evalErr)
+        Right elems ->
+            forM_ (zip [0 ..] elems) $ \case
+                (i, val) -> case val of
+                    -- This is a script evaluation error.
+                    Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) ->
+                        addEvent (Just i) pwc logs exUnits (Just evalErr)
+                    Right (pwc, logs, exUnits) ->
+                        addEvent (Just i) pwc logs exUnits Nothing
+                    -- TODO: we might need to cover more errors, ex budget
+                    _ -> pure ()
+        Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) ->
+            -- NOTE: This is not a script evaluation error but a script
+            -- selection error.
+            addEvent Nothing pwc logs exUnits (Just evalErr)
         -- TODO: we might need to cover more errors, ex budget
         _ -> pure ()
   where
     addEvent
+        mScriptIndex
         PlutusWithContext
             { pwcArgs = args :: PlutusArgs l
             , pwcCostModel
@@ -191,7 +206,13 @@ traceTransactionExecutionResult events tc =
                 context =
                     ExecutionContext
                         { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
-                        , scriptName = Map.lookup scriptHash tc.ctxRelevantScripts >>= CM.rsName
+                        , scriptName = do
+                            pos <- mScriptIndex
+                            -- NOTE: Computing this all the time is
+                            -- redundant. We should structure this in a better
+                            -- way.
+                            scripts <- Map.lookup scriptHash tc.ctxRelevantScripts
+                            CM.rsName $ scripts !! pos
                         , scriptHash
                         , ledgerLanguage
                         , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))

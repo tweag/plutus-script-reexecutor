@@ -10,7 +10,7 @@ import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
 import Control.Applicative (asum)
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, withExceptT, throwE)
+import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, withExceptT)
 import Data.Aeson.Types (FromJSON (..), ToJSON (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -90,7 +90,7 @@ instance ToJSON ScriptSource where
 -}
 data ConfigMap = ConfigMap
     { cmStart :: Maybe C.ChainPoint
-    , cmScripts :: Map C.ScriptHash ResolvedScript
+    , cmScripts :: Map C.ScriptHash [ResolvedScript]
     , cmLocalNodeConn :: C.LocalNodeConnectInfo
     }
 
@@ -164,6 +164,6 @@ readConfigMap scriptYaml networkId socketPath = runExceptT $ do
     pure
         ConfigMap
             { cmStart = cmfStart
-            , cmScripts = Map.fromList [(rsScriptHash x, x) | x <- scripts']
+            , cmScripts = Map.fromListWith (++) [(rsScriptHash x, [x]) | x <- scripts']
             , cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
             }

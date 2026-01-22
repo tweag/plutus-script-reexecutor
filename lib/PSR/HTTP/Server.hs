@@ -60,7 +60,7 @@ server cm maybeStorage events = siteH
                 contexts <- liftIO $ storage.getExecutionContexts filters
                 executions <-
                     forM contexts $ \(blockHeader, eci, context@ExecutionContext{..}) ->
-                        forM (Map.lookup scriptHash cm.cmScripts) $ \rs -> do
+                        forM (Map.lookup scriptHash cm.cmScripts) $ \rss -> forM rss $ \rs -> do
                             (_, exUnits, logs, evalError') <- tryRunScriptInContext rs context
                             liftIO $
                                 events.addExecutionEvent blockHeader eci $
@@ -70,7 +70,7 @@ server cm maybeStorage events = siteH
                                         , evalError = EvalError . C.docToText . C.pretty <$> evalError'
                                         , context
                                         }
-                pure $ catMaybes executions
+                pure $ concat $ catMaybes executions
 
     eventsWSH :: EventsWebSockets AsServer
     eventsWSH =

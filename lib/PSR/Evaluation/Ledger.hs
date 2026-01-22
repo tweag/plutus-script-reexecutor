@@ -52,6 +52,7 @@ evalPwcExUnitsWithLogs pwc exUnits =
             note (IncompatibleBudget exBudget) $
                 (pwc,logs,) <$> exBudgetToExUnits exBudget
 
+{- FOURMOLU_DISABLE -}
 evalTxExUnitsWithLogs ::
     forall era.
     ( AlonzoEraTx era
@@ -77,6 +78,7 @@ evalTxExUnitsWithLogs ::
     --     Unlike `evalTxExUnits`, this function also returns evaluation logs, useful for
     --     debugging.
     RedeemerReportWithLogs era
+{- FOURMOLU_ENABLE -}
 evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey findAndCount rdmrs
   where
     keyedByPurpose (plutusPurpose, _) = hoistPlutusPurpose toAsIx plutusPurpose
@@ -98,8 +100,9 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
     costModels = costModelsValid $ pp ^. ppCostModelsL
     ScriptsProvided scriptsProvided = getScriptsProvided utxo tx
     AlonzoScriptsNeeded scriptsNeeded = getScriptsNeeded utxo txBody
-    findAndCount pointer (redeemerData, exUnits) = do
-        (plutusPurpose, plutusScriptHash) <-
+
+    findAndCount pointer rdmr = do
+        purpHash@(_, plutusScriptHash) <-
             note (RedeemerPointsToUnknownScriptHash pointer) $
                 Map.lookup pointer purposeToScriptHash
         let ptrToPlutusScriptNoContext =
@@ -111,16 +114,21 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
                         )
                     )
                     purposeToScriptHash
-        let lookupPlutusScriptSubstituting psh =
-                case Map.lookup (C.ScriptHash plutusScriptHash) ssi of
-                    Nothing ->
+        scriptsToRun <-
+            case Map.lookup (C.ScriptHash plutusScriptHash) ssi of
+                Nothing -> do
+                    providedScript <-
                         note (MissingScript pointer ptrToPlutusScriptNoContext) $
-                            lookupPlutusScript psh scriptsProvided
-                    Just val ->
+                            lookupPlutusScript plutusScriptHash scriptsProvided
+                    pure [providedScript]
+                Just vals ->
+                    pure . flip map vals $ \val ->
                         case val of
-                            Conway.PlutusScript s -> pure s
+                            Conway.PlutusScript s -> s
                             _ -> error "Conway.NativeScript is not supported."
-        plutusScript <- lookupPlutusScriptSubstituting plutusScriptHash
+        pure $ map (findAndCountWith purpHash rdmr) scriptsToRun
+
+    findAndCountWith (plutusPurpose, plutusScriptHash) (redeemerData, exUnits) plutusScript = do
         let lang = plutusScriptLanguage plutusScript
         costModel <-
             note (NoCostModelInLedgerState lang) $ Map.lookup lang costModels

@@ -10,7 +10,7 @@ module PSR.Evaluation.Ledger (evalTxExUnitsWithLogs, evalPwcExUnitsWithLogs) whe
 import Cardano.Ledger.Alonzo.Core
 import Cardano.Ledger.Alonzo.Plutus.Context (EraPlutusContext (..), LedgerTxInfo (..))
 import Cardano.Ledger.Alonzo.Plutus.Evaluate (TransactionScriptFailure (..))
-import Cardano.Ledger.Alonzo.Scripts (ExUnits, lookupPlutusScript, plutusScriptLanguage, toAsItem, toAsIx)
+import Cardano.Ledger.Alonzo.Scripts (ExUnits, lookupPlutusScript, plutusScriptLanguage, toAsIx)
 import Cardano.Ledger.Alonzo.TxWits (unRedeemersL)
 import Cardano.Ledger.Alonzo.UTxO (AlonzoScriptsNeeded (..))
 import Cardano.Ledger.Plutus.CostModels (costModelsValid)
@@ -27,7 +27,12 @@ import Data.Map.Strict qualified as Map
 import Data.MapExtras (fromElems)
 import Data.Text (Text)
 import Lens.Micro
-import PSR.Types (PwcExecutionResult, RedeemerReportWithLogs, ScriptSubtitutionInfo)
+import PSR.Types (
+    PreEvaluationPlutusError (..),
+    PwcExecutionResult,
+    RedeemerReportWithLogs,
+    ScriptSubtitutionInfo,
+ )
 import PlutusLedgerApi.Common qualified as P
 
 import Cardano.Api qualified as C
@@ -103,8 +108,12 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
 
     findAndCount pointer rdmr = do
         purpHash@(_, plutusScriptHash) <-
-            note (RedeemerPointsToUnknownScriptHash pointer) $
+            note PeRedeemerPointsToUnknownScriptHash $
                 Map.lookup pointer purposeToScriptHash
+        {-
+        -- NOTE: We don't use this as we don't report this error. If we decide
+        -- to update PreEvaluationPlutusError, we need to pass this to
+        -- PeMissingScript.
         let ptrToPlutusScriptNoContext =
                 Map.map
                     ( \(sp, sh) ->
@@ -114,11 +123,12 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
                         )
                     )
                     purposeToScriptHash
+         -}
         scriptsToRun <-
             case Map.lookup (C.ScriptHash plutusScriptHash) ssi of
                 Nothing -> do
                     providedScript <-
-                        note (MissingScript pointer ptrToPlutusScriptNoContext) $
+                        note PeMissingScript $
                             lookupPlutusScript plutusScriptHash scriptsProvided
                     pure [providedScript]
                 Just vals ->

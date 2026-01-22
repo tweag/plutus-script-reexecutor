@@ -16,7 +16,7 @@ import Cardano.Ledger.Api qualified as L
 import Cardano.Ledger.Plutus qualified as Plutus
 
 import Cardano.Api.Shelley hiding (evaluateTransactionExecutionUnitsShelley)
-import Data.Bifunctor (Bifunctor (bimap, first))
+import Data.Bifunctor (Bifunctor (first, second))
 import Data.ByteString.Short (ShortByteString)
 import Data.Map.Strict qualified as Map
 import GHC.Exts (IsList (..))
@@ -83,8 +83,7 @@ evaluateTransactionExecutionUnitsShelley ssi sbe systemstart epochInfo (LedgerPr
     fromLedgerScriptExUnitsMap aOnwards exmap =
         fromList
             [ ( toScriptIndex aOnwards rdmrptr
-              , bimap
-                    (fromAlonzoScriptExecutionError aOnwards)
+              , second
                     (map (first (fromAlonzoScriptExecutionError aOnwards)))
                     exunitsOrFailure
               )

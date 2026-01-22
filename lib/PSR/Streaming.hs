@@ -171,20 +171,18 @@ traceTransactionExecutionResult events tc =
                 (i, val) -> case val of
                     -- This is a script evaluation error.
                     Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) ->
-                        addEvent (Just i) pwc logs exUnits (Just evalErr)
+                        addEvent i pwc logs exUnits (Just evalErr)
                     Right (pwc, logs, exUnits) ->
-                        addEvent (Just i) pwc logs exUnits Nothing
+                        addEvent i pwc logs exUnits Nothing
                     -- TODO: we might need to cover more errors, ex budget
                     _ -> pure ()
-        Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) ->
-            -- NOTE: This is not a script evaluation error but a script
-            -- selection error.
-            addEvent Nothing pwc logs exUnits (Just evalErr)
-        -- TODO: we might need to cover more errors, ex budget
-        _ -> pure ()
+        -- NOTE: This is not a script evaluation error but a script
+        -- selection error.
+        -- TODO: We should also report script missing error.
+        Left _ -> pure ()
   where
     addEvent
-        mScriptIndex
+        scriptIndex
         PlutusWithContext
             { pwcArgs = args :: PlutusArgs l
             , pwcCostModel
@@ -207,12 +205,11 @@ traceTransactionExecutionResult events tc =
                     ExecutionContext
                         { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
                         , scriptName = do
-                            pos <- mScriptIndex
                             -- NOTE: Computing this all the time is
                             -- redundant. We should structure this in a better
                             -- way.
                             scripts <- Map.lookup scriptHash tc.ctxRelevantScripts
-                            CM.rsName $ scripts !! pos
+                            CM.rsName $ scripts !! scriptIndex
                         , scriptHash
                         , ledgerLanguage
                         , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))

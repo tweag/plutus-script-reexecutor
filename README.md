@@ -1,14 +1,14 @@
 # Plutus Script Re-Executor
 
-A tool that follows a Cardano node, looks for user-specified script hashes and executes user-provided scripts instead of the original ones. This enables running debugging versions of Plutus Core scripts - with traces - against the live ledger state provided by the node, simplifying script development and debugging.
+A tool that follows a Cardano node, looks for user-specified script hashes and executes user-provided scripts instead of the original ones. This enables running debugging versions of Plutus Core scripts - with traces - against the live ledger state provided by the node, enabling detailed on-chain monitoring. 
 
 ## Motivation 
 
-Plutus scripts can be difficult to debug and test, particularly against real world transactions. Generating inputs that are identical to what the Cardano nodes will pass to the script can be difficult, and because scripts are optimised to save execution costs, they usually have all tracing removed when used in production. This means that scripts which behave unexpectedly in the real world are often a black box when trying to determine what went wrong.
+Developers of a decentralized application (dApp) would ideally have the option to easily analyze the successful executions of their scripts on the Cardano chain, if only to keep some off-chain state synchronized. To reduce load on the network, the fee formula incentivizes script authors to minimize the script’s logic and the size of the state it maintains. Unfortunately, this means state that does not influence the script’s validity judgment but is otherwise useful to the dapp developer (e.g. an individual user’s history of usage, statistics about general usage, etc) is not automatically available on-chain. Dapp developers must use auxiliary tooling in order to maintain that state off-chain.
 
-Plutus Script Re-Executor (PSR) is a tool designed to allow developers to test alternative versions of Plutus scripts on real transactions from the Cardano blockchain. It does this be connecting to a cardano-node to monitor for new blocks, and then when transactions using matched scripts are found, it will substitute one (or more) scripts the user has provided in place of the real script. This means users can use unoptimised scripts with tracing enabled to see intermediate values, or test alternative implementations against known buggy transactions to ensure bug have been fixed.
+Plutus Script Re-Executor (PSR) is a monitoring tool designed to allow developers to run tracing enabled versions of Plutus scripts on real transactions from the Cardano blockchain locally without paying extra fees. It does this by connecting to a cardano-node to monitor for new blocks, and then when transactions using matched scripts are found, it will substitute one (or more) scripts the user has provided in place of the real script. This means users can use unoptimised scripts with tracing enabled to see intermediate values, or test alternative implementations against known buggy transactions to ensure bug have been fixed.
 
-PSR also stores all data needed to re-execute transactions of interest from the past against new scripts, allowing developers to iterate application development and then go back and test after the fact.
+PSR also provides an option to store all data needed to re-execute transactions of interest from the past against new scripts, allowing developers to iterate application development and then go back and test after the fact.
 
 To ensure that all relevant transactions are observed, PSR is able to control a cardano-node in a "leashed" mode - the cardano node will not proceed fetching new blocks until each has been processed by PSR. This means that every single execution of all user specified scripts can be stored for later use.
 
@@ -56,7 +56,13 @@ After starting the `plutus-script-reexecutor` you can look for events with
 websocat ws://localhost:8080/events-ws | jq
 ```
 
-or
+By default, there is no logging or any recording to storage. If you want to write the events to file, use `--logs-path events.log` and explore them with
+
+```bash
+tail -f events.log
+```
+
+or enable SQLite storage with `--sqlite-path plutus-script-reexecutor.db` which will enable API endpoints to explore the data 
 
 ```bash
 curl -v http://localhost:8080/events | jq

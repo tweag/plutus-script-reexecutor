@@ -1,3 +1,19 @@
+# Plutus Script Re-Executor Specification
+
+* [Abstract](#abstract)
+* [Architecture Overview](#architecture-overview)
+* [Glossary](#glossary)
+* [Component Specifications](#component-specifications)
+    * [Scanning Process](#1-scanning-process)
+    * [Context Builder](#2-context-builder)
+    * [Script Executor](#3-script-executor)
+    * [Events API](#4-events-api)
+    * [Full Cardano Node Integration](#5-full-cardano-node-integration)
+    * [Leash Node-to-Client protocol](#6-leash-node-to-client-protocol)
+    * [Configuration Map](#7-configuration-map)
+    * [Data Storage](#8-data-storage)
+* [References](#references)
+
 ## Abstract
 
 This document proposes an architecture for "Plutus Script Re-Executor" — a tool for Cardano dapps developers to run custom PlutusCore scripts while following the node in parallel to the original scripts.
@@ -15,12 +31,12 @@ The Plutus Script Re-Executor system consists of main components:
 5. **Full Cardano Node** — standard node providing blocks, validation services and canonical chain state
 6. **Leash Node-to-Client protocol** — mini-protocol & connection mode to limit the node's eagerness
 7. **Configuration map** — user configuration parser
-8. **Data storage** — database to keep the data
+8. **Data storage** — file for unstructured logs or database to keep the data in a structured manner
 
 ```mermaid
 graph TD
 
-    E[HTTP Events API:<br/>- REST endpoints<br/>- Metrics]
+    E[HTTP Events API:<br/>-WebSocket endpoints<br/>- REST endpoints<br/>- Metrics]
 
     R((Data Storage<br/>- Data access APIs<br/>- Connection pooling<br/>- Caching & optimization))
 
@@ -43,6 +59,7 @@ graph TD
     D1 -->|provides blocks & transactions| D2
     D3 -->|provides script context| D2
     D2 -->|writes events| R
+    D2 -->|writes events| E
 
     D1 -->|uses| M
     D2 -->|uses| M
@@ -54,6 +71,7 @@ graph TD
 
     E -->|HTTP| F
 
+    D1 -->|Leashing NTC mini-protocol| G
     D1 -->|Following blocks| G
     D3 <-.->|Querying data| G
 
@@ -75,32 +93,31 @@ graph TD
     class M configurationClass
 ```
 
-The dApp developer will run the Plutus Script Re-Executor (PSR) that connects to the Cardano Node using leashing connection mode. The scanning process will follow the node to scan the blocks and transactions for ScriptHashes specified in the configuration map. Each script that has a `ScriptHash` mentioned in the configuration map, will be re-executed by the PSR reusing/rebuilding the same ScriptContext and the results of the execution will be saved in data storage. The events emitted by the PSR are available via HTTP Events Api with a metrics endpoint to monitor the status of the application. 
+The dApp developer will run the Plutus Script Re-Executor (PSR) that connects to the Cardano Node using leashing connection mode. The scanning process will follow the node to scan the blocks and transactions for ScriptHashes specified in the configuration map. Each script that has a `ScriptHash` mentioned in the configuration map, will be re-executed by the PSR reusing/rebuilding the same ScriptContext and the results of the execution will be saved in data storage (optional). The events emitted by the PSR are available via WebSocket chanel and, if data storage is enabled, via HTTP Events Api with a metrics endpoint to monitor the status of the application. 
 
 ### Glossary
 
-- ScriptHash — Type representing the /BLAKE2b-224/ hash of a script. 28 bytes.
-- ScriptContext — An input to a Plutus script created by the ledger. It includes details of the transaction being validated. Additionally, since a transaction may do multiple things, each of which needs to be validated by a separate script, the script context also specifies what exactly the current script is responsible for validating. 
-- PlutusCore — a low-level language for on-chain code, based on untyped lambda calculus.
-- Mini-protocol — a mini protocol is a well-defined and modular building block of the network protocol. Structuring a protocol around mini-protocols helps manage the overall complexity of the design and adds useful flexibility.
+- `ScriptHash` — Type representing the /BLAKE2b-224/ hash of a script. 28 bytes.
+- `ScriptContext` — An input to a Plutus script created by the ledger. It includes details of the transaction being validated. Additionally, since a transaction may do multiple things, each of which needs to be validated by a separate script, the script context also specifies what exactly the current script is responsible for validating. 
+- `PlutusCore` — a low-level language for on-chain code, based on untyped lambda calculus.
+- `Mini-protocol` — a mini protocol is a well-defined and modular building block of the network protocol. Structuring a protocol around mini-protocols helps manage the overall complexity of the design and adds useful flexibility.
+- `Leashing` — by "leashing" we mean setting the point`leashing_point` in the node such that the node won't process blocks after `leashing_point + k`.
 
-References:
-- https://plutus.cardano.intersectmbo.org/docs/glossary
-- https://ouroboros-network.cardano.intersectmbo.org/pdfs/network-spec/network-spec.pdf
+More here https://plutus.cardano.intersectmbo.org/docs/glossary
 
 ### Component Specifications
 
-#### 1. Scanning process
+#### 1. Scanning Process
 
 **Purpose**: follows the node and scans for specified `ScriptHash` scripts using Chain-Sync Node-to-Client mini-protocol.
 
 **Configuration**: takes a list of `ScriptHash` entities from the configuration map.
 
-#### 2. Context builder
+#### 2. Context Builder
 
 **Purpose**: to be able to run a script we need to rebuild its context on-chain, this component either provides it from the data storage or queries from the node using Local State Query Node-to-Client mini-protocol.
 
-#### 3. Script executor
+#### 3. Script Executor
 
 **Purpose**: run the provided `PlutusCore` script in the given `ScriptContext` using the configuration map.
 
@@ -112,7 +129,7 @@ References:
 
 #### 4. Events API
 
-**Purpose**: provides access to the results of the scripts re-executing. 
+**Purpose**: provides access to the results of the scripts re-executing. Note, that `GET` endpoints provide data only if the SQLite database is enabled. Only the WebSocket endpoints streams the data in real time.
 
 **Architecture**: HTTP API that queries data from the data storage and returns JSON responses. Also provides OpenAPI spec. 
 
@@ -123,6 +140,17 @@ References:
 - **Cancellation**: identifies which script executions were undone whenever the local node switches away from the blocks that executed some scripts in the configuration data.
 
 **Endpoints**:
+
+##### WebSocket endpoints /events-ws and /events-ws/{ script_hash | name or alias }
+
+Streams events in JSON format. Also supports the query parameters, allowing to filter out the irrelevant events. 
+
+**Query Parameters**:
+- `type`: `execution`, `selection`, or `cancellation` (optional)
+- `time_begin`: ISO 8601 time range begin (optional)
+- `time_end`: ISO 8601 time range end (optional)
+- `slot_begin`: Slot number range begin (optional)
+- `slot_end`: Slot number range end (optional)
 
 ##### GET /events/
 
@@ -156,7 +184,7 @@ Returns all events relevant to the provided `script_hash` or `name` with filteri
 
 ##### GET /execute/{ script_hash | name or alias }
 
-Executes the provided hash in the latest execution context if no parameters are provided.
+Executes the provided hash in the latest execution context (latest here means ordered by `created_at`) if no parameters are provided.
 
 **Query Parameters**:
 - `context_id`: executes script in the provided execution context
@@ -176,17 +204,6 @@ Prometheus metrics endpoint exposing operational statistics in standard expositi
 - Storage: database size by table, evictions, storage limit hits
 - System Health: active processes, service availability, resources consumption
 
-##### WebSocket endpoints /events-ws and /events-ws/{ script_hash | name or alias }
-
-Streams events in JSON format. Also supports the query parameters, allowing to filter out the irrelevant events. 
-
-**Query Parameters**:
-- `type`: `execution`, `selection`, or `cancellation` (optional)
-- `time_begin`: ISO 8601 time range begin (optional)
-- `time_end`: ISO 8601 time range end (optional)
-- `slot_begin`: Slot number range begin (optional)
-- `slot_end`: Slot number range end (optional)
-
 #### 5. Full Cardano Node Integration
 
 **Purpose**: Provide data for the scanning process. 
@@ -201,23 +218,29 @@ Streams events in JSON format. Also supports the query parameters, allowing to f
 - Standard cardano-node with normal network connectivity
 - Maintains full ledger state for validation queries
 
-#### 6. Leash Node-to-Client protocol
+#### 6. Leash Node-to-Client Protocol
 
-**Purpose**: a Node-to-Client protocol that allows to "leash" the node and keep the resource usage under control.
+**Purpose**: a Node-to-Client protocol that allows to "leash" the node and keep the resource usage under control by preventing its internal ledger advancing too quickly.
+
+If the re-executor is too slow to process the events, it can "leash" the node to pause the block processing, slowing down and allowing for the re-executor to catch up.
 
 **Details**: 
 
 1. We want to leash the node when we see a relevant block with transactions that include `ScriptHash`es we are interested in.
-2. We want to be able to communicate "the pause" message to the node via Node-to-Client mini-protocol.
-3. The node should recognize "the pause" message and to pause getting the blocks from other nodes and changing the ledger state.
-4. We want to be able to query the ledger state from the node via Node-to-Client mini-protocol while the node is paused and the ledger state is immutable.
-5. We want to be able to communicate "the resume" message to the node via Node-to-Client mini-protocol.
-6. The node should recognize "the resume" message and resume getting the blocks from other nodes.
-7. The pause and resumption should be atomic operations.
+2. We want to make sure that we don't fall behind and don't see such a block too late (more than 12 hrs for example).
+3. We want to be able to communicate the leashing point to the node via Node-to-Client mini-protocol.
+4. The leashing point — is a point on chain such that the node would never progress more than 2160 blocks past that point.
+5. The node should recognize the message and pause progressing — getting the blocks from other nodes and changing the ledger state.
+6. We want to be able to query the ledger state from the node via Node-to-Client mini-protocol while the node is paused and the ledger state is immutable.
+7. We want to be able to communicate the new leashing point message to the node via Node-to-Client mini-protocol.
+8. The node should recognize this new message and update the leashing point which will allow node to resume getting the blocks from other nodes.
+9. The manipulations on the leashing point should be atomic operations.
 
 **Node-to-Client mini-protocol**:
 
-The step (2) can be done by either extending the existing `Local State Query` mini-protocol or introducing a new one, that will be very similar.
+The step (3) can be done by either extending the existing `Local State Query` mini-protocol or introducing a new one, that will be very similar.
+
+In this specification we consider re-using the existing `Local State Query` mini-protocol to speed-up the development. It will be easy to create a separate mini-protocol after the MVP will be finished and the correct approach should be chosen and approved by the cardano-node developers.
 
 Here is the CDDL of the `LocalStateQuery`:
 
@@ -300,9 +323,9 @@ msgAcquire   = [0, base.point]
 
 **Cardano node changes**:
 
-The step (3) should introduce the relevant changes to the `cardano-node`.
+The step (5) should introduce the relevant changes to the `cardano-node`.
 
-We want to stop the node to communicate and get new blocks.
+We want to stop the node from extending its chosen chain while the plutus-script-reexecutor is executing substitute scripts, so that the ledger state can be queried. We list the potential implementation strategies that we considered.
 
 **Strategy 1**:
 
@@ -332,7 +355,9 @@ https://ouroboros-consensus.cardano.intersectmbo.org/docs/references/miscellaneo
 
 We can implement leashing there utilising the existing LoE component.
 
-#### 7. Configuration map
+**Sum up**: the first two strategies seem to be too invasive and we are investigating the third strategy to implement the leashing.
+
+#### 7. Configuration Map
 
 **Purpose**: allows to user to specify which scripts should be executed under specified `script_hash`. 
 
@@ -372,11 +397,13 @@ where `my_custom_script.json`:
 }
 ```
 
-#### 8. Data storage
+#### 8. Data Storage
 
-**Purpuse**: storage of the emitted events for Events API and future analysis. 
+**Purpose**: storage of the emitted events for Events API and future analysis. 
 
-**Motivation**: the current ledger state is big and we can't rely on RAM only to store the execution results. If a user specifies a popular script that is executed very often we easily can get a memory overflow error. 
+**Motivation**: we want to provide an option to store the results of the scripts execution for future analysis. We provide two options: an unstructured logging to a file and a structured storage using a SQLite database with the entities described below.
+
+**Eviction policies**: at the moment no eviction is performed by the system, but can be written manually by the user. In the future we may provide mechanisms for automatically evicting previous events (`h` hours, `d` days, etc).
 
 **Entities**:
 
@@ -480,3 +507,9 @@ erDiagram
         timestamp created_at
     }
 ```
+
+### References:
+
+- https://ouroboros-network.cardano.intersectmbo.org/pdfs/network-spec/network-spec.pdf
+- https://ouroboros-consensus.cardano.intersectmbo.org/docs/references/miscellaneous/genesis_design/
+

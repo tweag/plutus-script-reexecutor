@@ -22,7 +22,7 @@ import Cardano.Ledger.Plutus.TxInfo (exBudgetToExUnits)
 import Cardano.Ledger.State (EraUTxO (..), ScriptsProvided (..), UTxO (..))
 import Cardano.Slotting.EpochInfo (EpochInfo)
 import Cardano.Slotting.Time (SystemStart)
-import Data.Bifunctor (first)
+import Data.Bifunctor (Bifunctor (second), first)
 import Data.Map.Strict qualified as Map
 import Data.MapExtras (fromElems)
 import Data.Text (Text)
@@ -127,16 +127,18 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
         scriptsToRun <-
             case Map.lookup (C.ScriptHash plutusScriptHash) ssi of
                 Nothing -> do
+                    -- NOTE: When there is no substitution script available, we
+                    -- can choose to exit. This will simplify the function.
                     providedScript <-
                         note PeMissingScript $
                             lookupPlutusScript plutusScriptHash scriptsProvided
-                    pure [providedScript]
+                    pure [(Nothing, providedScript)]
                 Just vals ->
                     pure . flip map vals $ \val ->
                         case val of
-                            Conway.PlutusScript s -> s
-                            _ -> error "Conway.NativeScript is not supported."
-        pure $ map (findAndCountWith purpHash rdmr) scriptsToRun
+                            (sname, Conway.PlutusScript s) -> (sname, s)
+                            _ -> error "Conway.TimelockScript is not supported."
+        pure $ map (second (findAndCountWith purpHash rdmr)) scriptsToRun
 
     findAndCountWith (plutusPurpose, plutusScriptHash) (redeemerData, exUnits) plutusScript = do
         let lang = plutusScriptLanguage plutusScript

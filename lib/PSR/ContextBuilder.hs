@@ -240,5 +240,8 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
             ctxInputUtxoMap
             tx
 
-    mkLedgerScript ResolvedScript{..} = C.toShelleyScript <$> C.toScriptInEra (C.convert ctxAlonzoEraOnwards) rsScriptFileContent
+    -- TODO: Report this error to the user.
+    mkLedgerScript ResolvedScript{..} = do
+        scr <- C.toScriptInEra (C.convert ctxAlonzoEraOnwards) rsScriptFileContent
+        pure $ (rsName, C.toShelleyScript scr)
     subMap = Map.map (mapMaybe mkLedgerScript) scriptMap

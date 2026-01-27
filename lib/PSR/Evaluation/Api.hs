@@ -84,7 +84,7 @@ evaluateTransactionExecutionUnitsShelley ssi sbe systemstart epochInfo (LedgerPr
         fromList
             [ ( toScriptIndex aOnwards rdmrptr
               , second
-                    (map (first (fromAlonzoScriptExecutionError aOnwards)))
+                    (map (second (first (fromAlonzoScriptExecutionError aOnwards))))
                     exunitsOrFailure
               )
             | (rdmrptr, exunitsOrFailure) <- toList exmap

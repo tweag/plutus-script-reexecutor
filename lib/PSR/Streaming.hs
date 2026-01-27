@@ -167,13 +167,13 @@ traceTransactionExecutionResult events tc =
     -- this up
     forM_ (Map.elems tc.ctxTransactionExecutionResult) $ \case
         Right elems ->
-            forM_ (zip [0 ..] elems) $ \case
-                (i, val) -> case val of
+            forM_ elems $ \case
+                (sname, val) -> case val of
                     -- This is a script evaluation error.
                     Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) ->
-                        addEvent i pwc logs exUnits (Just evalErr)
+                        addEvent sname pwc logs exUnits (Just evalErr)
                     Right (pwc, logs, exUnits) ->
-                        addEvent i pwc logs exUnits Nothing
+                        addEvent sname pwc logs exUnits Nothing
                     -- TODO: we might need to cover more errors, ex budget
                     _ -> pure ()
         -- NOTE: This is not a script evaluation error but a script
@@ -182,7 +182,7 @@ traceTransactionExecutionResult events tc =
         Left _ -> pure ()
   where
     addEvent
-        scriptIndex
+        scriptName
         PlutusWithContext
             { pwcArgs = args :: PlutusArgs l
             , pwcCostModel
@@ -204,12 +204,7 @@ traceTransactionExecutionResult events tc =
                 context =
                     ExecutionContext
                         { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
-                        , scriptName = do
-                            -- NOTE: Computing this all the time is
-                            -- redundant. We should structure this in a better
-                            -- way.
-                            scripts <- Map.lookup scriptHash tc.ctxRelevantScripts
-                            CM.rsName $ scripts !! scriptIndex
+                        , scriptName = scriptName
                         , scriptHash
                         , ledgerLanguage
                         , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))

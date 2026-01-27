@@ -43,13 +43,24 @@ data Block where
 deriving instance Show C.BlockHeader
 deriving instance Show Block
 
-type ScriptSubtitutionInfo era = Map C.ScriptHash [L.AlonzoScript era]
+type ScriptName = Text
+
+type ScriptSubtitutionInfo era =
+    Map C.ScriptHash [(Maybe ScriptName, L.AlonzoScript era)]
 
 -- NOTE: We are omiting a lot of information here. We can add it on demand if
 -- required.
 data PreEvaluationPlutusError
     = PeRedeemerPointsToUnknownScriptHash
     | PeMissingScript
+
+type ExecutionData = (L.PlutusWithContext, [Text], L.ExUnits)
+
+type PwcExecutionResult era =
+    Either (L.TransactionScriptFailure era) ExecutionData
+
+type PwcExecutionResult_ =
+    Either C.ScriptExecutionError ExecutionData
 
 -- NOTE: The two levels of nesting in Either depict different type of
 -- errors. Combining them loses information.
@@ -58,23 +69,20 @@ data PreEvaluationPlutusError
 -- script hash that we want to scrutinize is not found. In the second level the
 -- errors in the list correspond to the errors that we get on running
 -- independent plutus scripts we substitute.
+--
+-- NOTE: Should we rename this to "RedeemerReportWithLogs_"?
 type TransactionExecutionResult =
     Map
         C.ScriptWitnessIndex
         ( Either
             PreEvaluationPlutusError
-            [ Either
-                C.ScriptExecutionError
-                (L.PlutusWithContext, [Text], L.ExUnits)
-            ]
+            [(Maybe ScriptName, PwcExecutionResult_)]
         )
-
-type PwcExecutionResult era =
-    Either
-        (L.TransactionScriptFailure era)
-        (L.PlutusWithContext, [Text], L.ExUnits)
 
 type RedeemerReportWithLogs era =
     Map
         (L.PlutusPurpose L.AsIx era)
-        (Either PreEvaluationPlutusError [PwcExecutionResult era])
+        ( Either
+            PreEvaluationPlutusError
+            [(Maybe ScriptName, PwcExecutionResult era)]
+        )

@@ -60,8 +60,8 @@ library
     PSR.Evaluation.Api
     PSR.Evaluation.Ledger
     PSR.Events
-    PSR.Events.Interface
     PSR.Events.FileLogger
+    PSR.Events.Interface
     PSR.HTTP
     PSR.HTTP.API
     PSR.HTTP.Server
@@ -90,7 +90,9 @@ library
     , cardano-slotting
     , containers
     , data-default
+    , directory
     , file-embed
+    , filepath
     , microlens
     , ordered-containers
     , ouroboros-consensus-cardano

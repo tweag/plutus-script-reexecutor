@@ -25,6 +25,8 @@ import PlutusLedgerApi.Common (
     deserialiseScript,
     ledgerLanguageIntroducedIn,
  )
+import System.Directory (makeRelativeToCurrentDirectory)
+import System.FilePath (dropFileName, (</>))
 
 -- | Represents the config map file on disk
 data ConfigMapFile = ConfigMapFile
@@ -129,8 +131,8 @@ resolveScript (scr :: C.ScriptInAnyLang) = do
         <$> withExceptT show (deserialiseScript lang protocol script)
 
 -- | Resolve a script, either from disk or inline definition
-readScriptFile :: ScriptDetails -> ExceptT String IO ResolvedScript
-readScriptFile ScriptDetails{..} = do
+readScriptFile :: FilePath -> ScriptDetails -> ExceptT String IO ResolvedScript
+readScriptFile scriptYamlDir ScriptDetails{..} = do
     let someTypeFor x v = C.FromSomeType x (C.ScriptInAnyLang (C.PlutusScriptLanguage v) . C.PlutusScript v)
         v1 = someTypeFor (C.AsPlutusScript C.AsPlutusScriptV1) C.PlutusScriptV1
         v2 = someTypeFor (C.AsPlutusScript C.AsPlutusScriptV2) C.PlutusScriptV2
@@ -138,9 +140,11 @@ readScriptFile ScriptDetails{..} = do
         scriptTypes = [v1, v2, v3]
 
     rsScriptFileContent <- case sdSource of
-        Just (FromFile path) -> do
-            liftIO $ putStrLn $ "Reading script from file: " <> path
-            withExceptT show $ ExceptT $ C.readFileTextEnvelopeAnyOf scriptTypes (C.File path)
+        Just (FromFile path') -> do
+            let path = scriptYamlDir </> path'
+            relativePath <- liftIO $ makeRelativeToCurrentDirectory path
+            liftIO $ putStrLn $ "Reading script from file: " <> relativePath
+            withExceptT show $ ExceptT $ C.readFileTextEnvelopeAnyOf scriptTypes (C.File relativePath)
         Just (CBORHex content) ->
             withExceptT show $ except $ C.deserialiseFromTextEnvelopeAnyOf scriptTypes content
         _ -> fail $ "Please provide either the cborHex or file_path for: " <> show sdScriptHash
@@ -160,7 +164,8 @@ readScriptFile ScriptDetails{..} = do
 readConfigMap :: FilePath -> C.NetworkId -> C.SocketPath -> IO (Either String ConfigMap)
 readConfigMap scriptYaml networkId socketPath = runExceptT $ do
     ConfigMapFile{..} <- withExceptT show $ ExceptT $ decodeFileEither scriptYaml
-    scripts' <- mapM readScriptFile cmfScripts
+    let scriptYamlDir = dropFileName scriptYaml
+    scripts' <- mapM (readScriptFile scriptYamlDir) cmfScripts
     pure
         ConfigMap
             { cmStart = cmfStart

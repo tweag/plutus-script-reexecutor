@@ -29,7 +29,7 @@ processes:
     disabled: true
 
   script-reexecutor:
-    command: "cabal run plutus-script-reexecutor -- run --node-socket devnet-env/socket/node1/sock --testnet-magic 42 --script-yaml local-config/scripts.yaml --logs-path events.log --sqlite-path plutus-script-reexecutor.db"
+    command: "cabal run plutus-script-reexecutor -- run --node-socket devnet-env/socket/node1/sock --testnet-magic 42 --script-yaml local-config/scripts.yaml --logs-path events.log --sqlite-path plutus-script-reexecutor.db --http-server-port 8090"
     depends_on:
       cardano-testnet:
         condition: process_healthy
@@ -37,7 +37,7 @@ processes:
       http_get:
         scheme: http
         host: localhost
-        port: 8080
+        port: 8090
         path: "/events/non-existant"
       initial_delay_seconds: 1
       period_seconds: 2
@@ -46,13 +46,13 @@ processes:
       failure_threshold: 30
 
   script-websocket-output:
-    command: "websocat --text ws://localhost:8080/events-ws/ threadedstdio: | jq -C --unbuffered"
+    command: "websocat --text ws://localhost:8090/events-ws/ threadedstdio: | jq -C --unbuffered"
     depends_on:
       script-reexecutor:
         condition: process_healthy
 
   script-websocket-executions:
-    command: "websocat --text ws://localhost:8080/events-ws/?type=execution threadedstdio: | jq -C --unbuffered"
+    command: "websocat --text ws://localhost:8090/events-ws/?type=execution threadedstdio: | jq -C --unbuffered"
     depends_on:
       script-reexecutor:
         condition: process_healthy

@@ -96,6 +96,8 @@ hexify val =
 -- Globals
 -------------------------------------------------------------------------------
 
+{- HLINT ignore "Use camelCase" -}
+
 env_POPULATE_WORK_DIR :: FilePath
 env_POPULATE_WORK_DIR = "work"
 

@@ -6,21 +6,23 @@ module PSR.ConfigMap (
     readConfigMap,
 ) where
 
+--------------------------------------------------------------------------------
+-- Imports
+--------------------------------------------------------------------------------
+
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
-import Control.Applicative (asum)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, withExceptT)
-import Data.Aeson.Types (FromJSON (..), ToJSON (..))
 import Data.Function ((&))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Yaml (decodeFileEither, withObject)
-import Data.Yaml.Aeson (Value (Object), object, (.:), (.:?), (.=))
+import Data.Yaml (decodeFileEither)
 import PSR.Chain (mkLocalNodeConnectInfo)
+import PSR.Types (deriveJSONRecord, deriveJSONSimpleSum)
 import PlutusLedgerApi.Common (
     MajorProtocolVersion,
     PlutusLedgerLanguage (..),
@@ -31,60 +33,19 @@ import PlutusLedgerApi.Common (
 import System.Directory (makeRelativeToCurrentDirectory)
 import System.FilePath (dropFileName, (</>))
 
--- | Represents the config map file on disk
-data ConfigMapFile = ConfigMapFile
-    { cmfStart :: Maybe C.ChainPoint
-    , cmfScripts :: [ScriptSubDetails]
-    }
+--------------------------------------------------------------------------------
+-- Types
+--------------------------------------------------------------------------------
+
+{- | Where a script's source can be found, either inline in the Yaml file
+ or another file on disk.
+-}
+data ScriptSource
+    = SCbor C.TextEnvelope
+    | SPath FilePath
     deriving (Show, Eq)
 
-instance FromJSON ConfigMapFile where
-    parseJSON = withObject "ConfigMapFile" $ \v ->
-        ConfigMapFile
-            <$> v .:? "start"
-            <*> v .: "scripts"
-
-instance ToJSON ConfigMapFile where
-    toJSON (ConfigMapFile strt scrpts) =
-        object ["start" .= strt, "scripts" .= scrpts]
-
--- | Details of each script
-data ScriptSubDetails = ScriptSubDetails
-    { sdScriptHash :: C.ScriptHash
-    , sdScriptSubs :: [ScriptDetails]
-    }
-    deriving (Show, Eq)
-
-instance ToJSON ScriptSubDetails where
-    toJSON (ScriptSubDetails sh subs) =
-        object
-            [ "script_hash" .= sh
-            , "substitutions" .= subs
-            ]
-
-instance FromJSON ScriptSubDetails where
-    parseJSON = withObject "ScriptSubDetails" $ \v ->
-        ScriptSubDetails
-            <$> v .: "script_hash"
-            <*> v .: "substitutions"
-
-instance ToJSON ScriptDetails where
-    toJSON (ScriptDetails hash src nm) =
-        object $
-            concat
-                [ maybe [] ((: []) . ("name" .=)) nm
-                ,
-                    [ "source" .= src
-                    , "hash" .= hash
-                    ]
-                ]
-
-instance FromJSON ScriptDetails where
-    parseJSON = withObject "ScriptDetails" $ \v ->
-        ScriptDetails
-            <$> v .: "hash"
-            <*> v .: "source"
-            <*> v .:? "name"
+$(deriveJSONSimpleSum "S" ''ScriptSource)
 
 data ScriptDetails = ScriptDetails
     { sdHash :: Text
@@ -93,23 +54,26 @@ data ScriptDetails = ScriptDetails
     }
     deriving (Show, Eq)
 
-{- | Where a script's source can be found, either inline in the Yaml file
- or another file on disk.
--}
-data ScriptSource
-    = CBORHex C.TextEnvelope
-    | FromFile FilePath
+$(deriveJSONRecord "sd" ''ScriptDetails)
+
+-- | Details of each script
+data ScriptSubDetails = ScriptSubDetails
+    { sdScriptHash :: C.ScriptHash
+    , sdTargetScriptName :: Maybe Text
+    , sdSubstitutions :: [ScriptDetails]
+    }
     deriving (Show, Eq)
 
-instance FromJSON ScriptSource where
-    parseJSON = withObject "ScriptSource" $ \v ->
-        asum
-            [ CBORHex <$> parseJSON (Object v)
-            , FromFile <$> v .: "path"
-            ]
-instance ToJSON ScriptSource where
-    toJSON (CBORHex cb) = toJSON cb
-    toJSON (FromFile path) = object ["path" .= path]
+$(deriveJSONRecord "sd" ''ScriptSubDetails)
+
+-- | Represents the config map file on disk
+data ConfigMapFile = ConfigMapFile
+    { cmfStart :: Maybe C.ChainPoint
+    , cmfScripts :: [ScriptSubDetails]
+    }
+    deriving (Show, Eq)
+
+$(deriveJSONRecord "cmf" ''ConfigMapFile)
 
 {- | The resolved configuration map, with any scripts referenced by
   path loaded from disk.
@@ -138,6 +102,10 @@ data ScriptEvaluationParameters where
         ScriptEvaluationParameters
     deriving (Show, Eq)
 
+--------------------------------------------------------------------------------
+-- Functions
+--------------------------------------------------------------------------------
+
 -- resolveScript :: ScriptInAnyLang -> _
 resolveScript :: C.ScriptInAnyLang -> ExceptT String IO (ScriptEvaluationParameters, ScriptForEvaluation)
 resolveScript (scr :: C.ScriptInAnyLang) = do
@@ -156,7 +124,7 @@ resolveScript (scr :: C.ScriptInAnyLang) = do
 
 readSubstitutionList :: FilePath -> ScriptSubDetails -> ExceptT String IO (C.ScriptHash, [ResolvedScript])
 readSubstitutionList scriptYamlDir ScriptSubDetails{..} = do
-    (sdScriptHash,) <$> mapM (readScriptFile scriptYamlDir sdScriptHash) (zip [1 ..] sdScriptSubs)
+    (sdScriptHash,) <$> mapM (readScriptFile scriptYamlDir sdScriptHash) (zip [1 ..] sdSubstitutions)
 
 -- | Resolve a script, either from disk or inline definition
 readScriptFile :: FilePath -> C.ScriptHash -> (Int, ScriptDetails) -> ExceptT String IO ResolvedScript
@@ -177,12 +145,12 @@ readScriptFile scriptYamlDir scrutScriptHash (ix, ScriptDetails{..}) = do
                 ]
 
     rsScriptFileContent <- case sdSource of
-        FromFile path' -> do
+        SPath path' -> do
             let path = scriptYamlDir </> path'
             relativePath <- liftIO $ makeRelativeToCurrentDirectory path
             liftIO $ putStrLn $ "Reading script from file: " <> relativePath
             withExceptT show $ ExceptT $ C.readFileTextEnvelopeAnyOf scriptTypes (C.File relativePath)
-        CBORHex content ->
+        SCbor content ->
             withExceptT show $ except $ C.deserialiseFromTextEnvelopeAnyOf scriptTypes content
 
     let actualScriptHash =

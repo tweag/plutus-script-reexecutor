@@ -9,6 +9,8 @@ module PSR.Types (
     RedeemerReportWithLogs,
     PwcExecutionResult,
     PreEvaluationPlutusError (..),
+    deriveJSONRecord,
+    deriveJSONSimpleSum,
 ) where
 
 --------------------------------------------------------------------------------
@@ -23,6 +25,47 @@ import Control.Exception (Exception)
 import Data.Map (Map)
 import Data.Text (Text)
 import GHC.Generics (Generic)
+
+import Data.Aeson (camelTo2)
+import Data.Aeson.TH (
+    SumEncoding (..),
+    constructorTagModifier,
+    defaultOptions,
+    deriveJSON,
+    fieldLabelModifier,
+    sumEncoding,
+ )
+import Data.List (stripPrefix)
+import Language.Haskell.TH.Syntax (Dec, Name, Q)
+
+--------------------------------------------------------------------------------
+-- JSON helpers
+--------------------------------------------------------------------------------
+
+tryStripPrefix :: String -> String -> String
+tryStripPrefix prefix str =
+    case stripPrefix prefix str of
+        Nothing ->
+            error $ "[" ++ str ++ "] does not have prefix [" ++ prefix ++ "]"
+        Just s -> s
+
+snakeCaseStripping :: String -> String -> String
+snakeCaseStripping prefix = camelTo2 '_' . tryStripPrefix prefix
+
+deriveJSONRecord :: String -> Name -> Q [Dec]
+deriveJSONRecord labelPrefix =
+    deriveJSON $
+        defaultOptions
+            { fieldLabelModifier = snakeCaseStripping labelPrefix
+            }
+
+deriveJSONSimpleSum :: String -> Name -> Q [Dec]
+deriveJSONSimpleSum constPrefix =
+    deriveJSON $
+        defaultOptions
+            { constructorTagModifier = snakeCaseStripping constPrefix
+            , sumEncoding = ObjectWithSingleField
+            }
 
 --------------------------------------------------------------------------------
 -- Types

@@ -127,12 +127,12 @@ tracingYamlContents scriptsDirName = do
       - name: "Local Policy"
         hash: "#{policyDebugPolicyId}"
         source:
-          path: "#{scriptsDirName}/policy-debug.plutus"
+          file_path: "#{scriptsDirName}/policy-debug.plutus"
 #{validatorPrefix}
       - name: "Local Validator"
         hash: "#{validatorDebugPolicyId}"
         source:
-          path: "#{scriptsDirName}/validator-debug.plutus"
+          file_path: "#{scriptsDirName}/validator-debug.plutus"
 |]
 
 escrowYamlContents :: IO String
@@ -146,7 +146,7 @@ escrowYamlContents = do
       - name: "Escrow"
         hash: "#{escrowDebugPolicyId}"
         source:
-          path: "./escrow-debug.plutus"
+          file_path: "./escrow-debug.plutus"
 |]
 
 createScriptsYaml :: IO ()

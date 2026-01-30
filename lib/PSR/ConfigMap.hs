@@ -41,8 +41,8 @@ import System.FilePath (dropFileName, (</>))
  or another file on disk.
 -}
 data ScriptSource
-    = SCbor C.TextEnvelope
-    | SPath FilePath
+    = SCborHex C.TextEnvelope
+    | SFilePath FilePath
     deriving (Show, Eq)
 
 $(deriveJSONSimpleSum "S" ''ScriptSource)
@@ -145,12 +145,12 @@ readScriptFile scriptYamlDir scrutScriptHash (ix, ScriptDetails{..}) = do
                 ]
 
     rsScriptFileContent <- case sdSource of
-        SPath path' -> do
+        SFilePath path' -> do
             let path = scriptYamlDir </> path'
             relativePath <- liftIO $ makeRelativeToCurrentDirectory path
             liftIO $ putStrLn $ "Reading script from file: " <> relativePath
             withExceptT show $ ExceptT $ C.readFileTextEnvelopeAnyOf scriptTypes (C.File relativePath)
-        SCbor content ->
+        SCborHex content ->
             withExceptT show $ except $ C.deserialiseFromTextEnvelopeAnyOf scriptTypes content
 
     let actualScriptHash =

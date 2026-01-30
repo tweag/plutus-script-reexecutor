@@ -110,6 +110,7 @@ library
     , stm
     , streamly
     , streamly-core
+    , template-haskell
     , text
     , time
     , transformers

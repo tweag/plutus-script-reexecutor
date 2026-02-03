@@ -62,6 +62,7 @@ By default, there is no logging or any recording to storage. If you want to writ
 tail -f events.log
 # Or, if you have jq installed
 tail -f events.log | jq
+```
 
 or enable SQLite storage with `--sqlite-path plutus-script-reexecutor.db` which will enable API endpoints to explore historical data.
 

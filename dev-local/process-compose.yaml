@@ -33,7 +33,7 @@ processes:
     disabled: true
 
   script-reexecutor:
-    command: "cabal run plutus-script-reexecutor -- run --node-socket devnet-env/socket/node1/sock --testnet-magic 42 --script-yaml local-config/scripts.yaml --logs-path events.log --sqlite-path plutus-script-reexecutor.db --http-server-port 8090"
+    command: "cabal run plutus-script-reexecutor -- run --node-socket devnet-env/socket/node1/sock --testnet-magic 42 --script-yaml local-config/scripts.yaml --logs-path events.log --sqlite-path plutus-script-reexecutor.db --http-server-port 8090 --leash-id 2600"
     depends_on:
       cardano-testnet:
         condition: process_healthy

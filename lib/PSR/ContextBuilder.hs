@@ -28,6 +28,7 @@ import Data.Map.Ordered qualified as OMap
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashID)
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
@@ -87,11 +88,12 @@ mkBlockContext ::
     ContextBuilderMetrics ->
     C.BlockHeader ->
     C.LocalNodeConnectInfo ->
+    LeashID ->
     C.ChainPoint ->
     C.AlonzoEraOnwards era ->
     [C.Tx era] ->
     IO (BlockContext era)
-mkBlockContext metrics bh conn prevCp era txs = do
+mkBlockContext metrics bh conn leashId prevCp era txs = do
     let sbe = C.convert era
         query =
             BlockContext bh prevCp era txs
@@ -101,7 +103,7 @@ mkBlockContext metrics bh conn prevCp era txs = do
                 <*> sysStartQuery
     -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
     observeDuration metrics.mkBlockContext_query $
-        runLocalStateQueryExpr conn prevCp query
+        runLocalStateQueryExpr conn leashId prevCp query
 
 --------------------------------------------------------------------------------
 -- Transaction Context
@@ -243,5 +245,5 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
     -- TODO: Report this error to the user.
     mkLedgerScript ResolvedScript{..} = do
         scr <- C.toScriptInEra (C.convert ctxAlonzoEraOnwards) rsScriptFileContent
-        pure $ (rsName, C.toShelleyScript scr)
+        pure (rsName, C.toShelleyScript scr)
     subMap = Map.map (mapMaybe mkLedgerScript) scriptMap

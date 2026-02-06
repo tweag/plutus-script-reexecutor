@@ -17,6 +17,7 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Yaml (decodeFileEither, withObject)
 import Data.Yaml.Aeson (Value (Object), object, (.:), (.:?), (.=))
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashID)
 import PSR.Chain (mkLocalNodeConnectInfo)
 import PlutusLedgerApi.Common (
     MajorProtocolVersion,
@@ -94,6 +95,7 @@ data ConfigMap = ConfigMap
     { cmStart :: Maybe C.ChainPoint
     , cmScripts :: Map C.ScriptHash [ResolvedScript]
     , cmLocalNodeConn :: C.LocalNodeConnectInfo
+    , cmLeashId :: LeashID
     }
 
 -- | Information relating to a loaded script
@@ -161,8 +163,8 @@ readScriptFile scriptYamlDir ScriptDetails{..} = do
             }
 
 -- | Parse the config from a given Yaml file on disk
-readConfigMap :: FilePath -> C.NetworkId -> C.SocketPath -> IO (Either String ConfigMap)
-readConfigMap scriptYaml networkId socketPath = runExceptT $ do
+readConfigMap :: FilePath -> C.NetworkId -> C.SocketPath -> LeashID -> IO (Either String ConfigMap)
+readConfigMap scriptYaml networkId socketPath leashId = runExceptT $ do
     ConfigMapFile{..} <- withExceptT show $ ExceptT $ decodeFileEither scriptYaml
     let scriptYamlDir = dropFileName scriptYaml
     scripts' <- mapM (readScriptFile scriptYamlDir) cmfScripts
@@ -171,4 +173,5 @@ readConfigMap scriptYaml networkId socketPath = runExceptT $ do
             { cmStart = cmfStart
             , cmScripts = Map.fromListWith (++) [(rsScriptHash x, [x]) | x <- scripts']
             , cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
+            , cmLeashId = leashId
             }

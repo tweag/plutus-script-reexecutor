@@ -34,7 +34,7 @@ main = do
 run :: Options -> IO ()
 run Options{..} = do
     config@CM.ConfigMap{..} <-
-        CM.readConfigMap scriptYaml networkId socketPath >>= either error pure
+        CM.readConfigMap scriptYaml networkId socketPath leashId >>= either error pure
 
     start <- maybe (C.chainTipToChainPoint <$> C.getLocalChainTip cmLocalNodeConn) pure cmStart
     let points = [start]

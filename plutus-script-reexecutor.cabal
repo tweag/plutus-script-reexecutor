@@ -127,9 +127,10 @@ executable plutus-script-reexecutor
   hs-source-dirs: app
   build-depends:
     , async
-    , base                      >=4.9 && <5
+    , base                         >=4.9 && <5
     , cardano-api
     , optparse-applicative
+    , ouroboros-network-protocols
     , plutus-script-reexecutor
     , streamly-core
     , warp

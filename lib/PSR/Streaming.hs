@@ -275,17 +275,17 @@ mainLoop events cm@CM.ConfigMap{..} points = do
         & void
   where
     confHashes = Map.keysSet cmScripts
-    consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, (Block bh sbe txList)) = do
+    consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, Block bh sbe txList) = do
         let getUtxoMap =
                 case mUtxoMap of
                     Nothing ->
-                        getSpendProjectedUtxoMap cmLocalNodeConn previousChainPt sbe confHashes
+                        getSpendProjectedUtxoMap cmLocalNodeConn cmLeashId previousChainPt sbe confHashes
                     Just utxoMap -> pure utxoMap
             -- NOTE: We only consume a specific set of transactions and not all
             -- the transactions in a block. We use the internal UTxO map to
             -- decide which transaction meet the criteria.
             consumeTransactions era selectedTxs = do
-                ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn previousChainPt era selectedTxs
+                ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
                 streamTransactionContext cbMetrics cm ctx1
                     & Stream.trace (traceTransactionExecutionResult events)
                     & Stream.fold Fold.drain

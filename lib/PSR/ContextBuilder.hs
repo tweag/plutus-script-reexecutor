@@ -32,6 +32,7 @@ import Data.Map.Ordered qualified as OMap
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashID)
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
@@ -95,11 +96,12 @@ mkBlockContext ::
     ContextBuilderMetrics ->
     C.BlockHeader ->
     C.LocalNodeConnectInfo ->
+    LeashID ->
     C.ChainPoint ->
     C.AlonzoEraOnwards era ->
     [C.Tx era] ->
     IO (BlockContext era)
-mkBlockContext metrics bh conn prevCp era txs = do
+mkBlockContext metrics bh conn leashId prevCp era txs = do
     let sbe = C.convert era
         query =
             BlockContext bh prevCp era txs
@@ -109,17 +111,18 @@ mkBlockContext metrics bh conn prevCp era txs = do
                 <*> sysStartQuery
     -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
     observeDuration metrics.mkBlockContext_query $
-        runLocalStateQueryExpr conn prevCp query
+        runLocalStateQueryExpr conn leashId prevCp query
 
 -- NOTE: This is a costly function, but we only run it once.
 getSpendProjectedUtxoMap ::
     C.LocalNodeConnectInfo ->
+    LeashID ->
     C.ChainPoint ->
     C.ShelleyBasedEra era ->
     Set C.ScriptHash ->
     IO (Map C.TxIn C.ScriptHash)
-getSpendProjectedUtxoMap conn cp sbe confHashes = do
-    C.UTxO umap <- runLocalStateQueryExpr conn cp (utxoWholeQuery sbe)
+getSpendProjectedUtxoMap conn leashId cp sbe confHashes = do
+    C.UTxO umap <- runLocalStateQueryExpr conn leashId cp (utxoWholeQuery sbe)
     pure $ Map.filter (flip Set.member confHashes) $ Map.mapMaybe getTxOutScriptAddr umap
 
 --------------------------------------------------------------------------------
@@ -336,5 +339,5 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
     -- TODO: Report this error to the user.
     mkLedgerScript ResolvedScript{..} = do
         scr <- C.toScriptInEra (C.convert ctxAlonzoEraOnwards) rsScriptFileContent
-        pure $ (rsName, C.toShelleyScript scr)
+        pure (rsName, C.toShelleyScript scr)
     subMap = Map.map (mapMaybe mkLedgerScript) scriptMap

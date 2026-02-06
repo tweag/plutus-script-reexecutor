@@ -271,7 +271,7 @@ mainLoop events cm@CM.ConfigMap{..} points = do
             case proveAlonzoEraOnwards sbe of
                 Nothing -> pure ()
                 Just era -> do
-                    ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn previousChainPt era txList
+                    ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era txList
                     streamTransactionContext cbMetrics cm ctx1
                         & Stream.trace (traceTransactionExecutionResult events)
                         & Stream.fold Fold.drain

@@ -29,17 +29,17 @@
 
     flake-utils.url = "github:numtide/flake-utils";
 
-    cardano-node.url = "github:tweag/cardano-node/fc02d1ef2126ffe5b62a6eda5a08a52347ebb6ef";
+    cardano-node.url = "github:tweag/cardano-node/e6eee59316bccece1e094083729a8720f3dd890c";
   };
 
-  outputs = inputs: inputs.flake-utils.lib.eachDefaultSystem (system: 
+  outputs = inputs: inputs.flake-utils.lib.eachDefaultSystem (system:
     import ./nix/outputs.nix { inherit inputs system; }
   );
 
   nixConfig = {
-    extra-substituters = [ 
-      "https://cache.iog.io" 
-      "https://cache.zw3rk.com" 
+    extra-substituters = [
+      "https://cache.iog.io"
+      "https://cache.zw3rk.com"
       "https://plutus-script-reexecutor.cachix.org"
     ];
     extra-trusted-public-keys = [

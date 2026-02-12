@@ -3,6 +3,7 @@ module PSR.Chain (
     sysStartQuery,
     eraHistoryQuery,
     utxoMapQuery,
+    utxoWholeQuery,
     pParamsQuery,
     mkLocalNodeConnectInfo,
     getPolicySet,
@@ -19,9 +20,9 @@ where
 
 import Cardano.Api qualified as C
 import Cardano.Api.Shelley qualified as C
--- TODO: export executeLocalStateQueryExprLeashed properly 
+
+-- TODO: export executeLocalStateQueryExprLeashed properly
 import Cardano.Api.Internal.IPC.Monad qualified as C
-import Ouroboros.Consensus.Cardano.Block (EraMismatch)
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Plutus (
     LegacyPlutusArgs (..),
@@ -33,12 +34,13 @@ import Cardano.Ledger.Plutus (
     unPlutusV2Args,
     unPlutusV3Args,
  )
-import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as Net.Query
 import Control.Exception (Exception, throw)
 import Data.Functor.Identity (Identity (..))
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Ouroboros.Consensus.Cardano.Block (EraMismatch)
+import Ouroboros.Network.Protocol.LocalStateQuery.Type qualified as Net.Query
 import PSR.Types
 import PlutusLedgerApi.Common (
     Data,
@@ -66,6 +68,16 @@ getTxInSet tx =
     let txBody = C.getTxBody tx
         txBodyContent = C.getTxBodyContent txBody
      in Set.fromList $ map fst $ C.txIns txBodyContent
+
+utxoWholeQuery ::
+    C.ShelleyBasedEra era ->
+    C.LocalStateQueryExpr block point C.QueryInMode r IO (C.UTxO era)
+utxoWholeQuery era = do
+    res <- C.queryUtxo era C.QueryUTxOWhole
+    case res of
+        Left err -> throw $ QeUnsupportedNtcVersionError err
+        Right (Left err) -> throw $ QeEraMismatch err
+        Right (Right val) -> pure val
 
 utxoMapQuery ::
     C.ShelleyBasedEra era ->

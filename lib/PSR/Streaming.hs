@@ -23,7 +23,7 @@ import Cardano.Ledger.Plutus (
  )
 import Control.Concurrent (forkIO)
 import Control.Exception (throw)
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Data.Foldable (forM_)
 import Data.Function ((&))
 import Data.Map qualified as Map
@@ -253,7 +253,7 @@ streamTransactionContext ::
     ContextBuilderMetrics -> CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
 streamTransactionContext cbMetrics cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
-        & Stream.mapMaybeM (mkTransactionContext cbMetrics cm ctx1)
+        & Stream.mapM (mkTransactionContext cbMetrics cm ctx1)
 
 --------------------------------------------------------------------------------
 -- Main
@@ -264,17 +264,39 @@ mainLoop events cm@CM.ConfigMap{..} points = do
     metrics <- initialiseMetrics
     cbMetrics <- initialiseContextBuilderMetrics
     streamBlocks metrics events cm points
-        & Stream.fold (Fold.drainMapM (uncurry (consumeBlock metrics cbMetrics)))
+        & Stream.fold (Fold.foldlM' (consumeBlock metrics cbMetrics) (pure Nothing))
+        & void
   where
-    consumeBlock metrics cbMetrics previousChainPt (Block bh sbe txList) =
+    confHashes = Map.keysSet cmScripts
+    consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, (Block bh sbe txList)) = do
+        let getUtxoMap =
+                case mUtxoMap of
+                    Nothing ->
+                        getSpendProjectedUtxoMap cmLocalNodeConn previousChainPt sbe confHashes
+                    Just utxoMap -> pure utxoMap
+            -- NOTE: We only consume a specific set of transactions and not all
+            -- the transactions in a block. We use the internal UTxO map to
+            -- decide which transaction meet the criteria.
+            consumeTransactions era selectedTxs = do
+                ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn previousChainPt era selectedTxs
+                streamTransactionContext cbMetrics cm ctx1
+                    & Stream.trace (traceTransactionExecutionResult events)
+                    & Stream.fold Fold.drain
+            withAlonzoEra era = do
+                prevUtxoMap <- getUtxoMap
+                let (newUtxoMap, selectedTxs) =
+                        selectScriptTriggeredTxs confHashes prevUtxoMap txList
+                -- NOTE: In most cases the list of selected transactions is
+                -- going to be empty. It is non-empty if and only if,
+                -- 1. The block has transactions that involve script executions
+                -- 2. These scripts have a non-empty intersection with the
+                --    configured scripts
+                when (not (null selectedTxs)) $ consumeTransactions era selectedTxs
+                pure $ Just newUtxoMap
         observeDuration metrics.mainLoop_consumeBlock_runtime $
             case proveAlonzoEraOnwards sbe of
-                Nothing -> pure ()
-                Just era -> do
-                    ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn previousChainPt era txList
-                    streamTransactionContext cbMetrics cm ctx1
-                        & Stream.trace (traceTransactionExecutionResult events)
-                        & Stream.fold Fold.drain
+                Nothing -> pure mUtxoMap
+                Just era -> withAlonzoEra era
 
 --------------------------------------------------------------------------------
 -- Module metrics

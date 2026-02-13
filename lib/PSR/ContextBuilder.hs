@@ -9,6 +9,8 @@ module PSR.ContextBuilder (
     proveAlonzoEraOnwards,
     ContextBuilderMetrics,
     initialiseContextBuilderMetrics,
+    getSpendProjectedUtxoMap,
+    selectScriptTriggeredTxs,
 ) where
 
 --------------------------------------------------------------------------------
@@ -20,8 +22,10 @@ import Cardano.Api.Ledger qualified as L
 import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Alonzo qualified as Alonzo
 import Control.Exception (evaluate)
-import Control.Monad (guard)
+import Data.Bifunctor (Bifunctor (second))
 import Data.Foldable (foldl', toList)
+import Data.Function ((&))
+import Data.Functor.Identity (Identity (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Map.Ordered qualified as OMap
@@ -33,6 +37,10 @@ import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
 import PSR.Metrics (Summary, observeDuration, regSummary)
 import PSR.Types
+import Streamly.Data.Fold qualified as Fold
+import Streamly.Data.Scanl (Scanl)
+import Streamly.Data.Scanl qualified as Scanl
+import Streamly.Data.Stream qualified as Stream
 
 --------------------------------------------------------------------------------
 -- Metrics
@@ -103,15 +111,106 @@ mkBlockContext metrics bh conn prevCp era txs = do
     observeDuration metrics.mkBlockContext_query $
         runLocalStateQueryExpr conn prevCp query
 
+-- NOTE: This is a costly function, but we only run it once.
+getSpendProjectedUtxoMap ::
+    C.LocalNodeConnectInfo ->
+    C.ChainPoint ->
+    C.ShelleyBasedEra era ->
+    Set C.ScriptHash ->
+    IO (Map C.TxIn C.ScriptHash)
+getSpendProjectedUtxoMap conn cp sbe confHashes = do
+    C.UTxO umap <- runLocalStateQueryExpr conn cp (utxoWholeQuery sbe)
+    pure $ Map.filter (flip Set.member confHashes) $ Map.mapMaybe getTxOutScriptAddr umap
+
 --------------------------------------------------------------------------------
 -- Transaction Context
 --------------------------------------------------------------------------------
+
+getOutputUtxoMap :: C.Tx era -> Map C.TxIn (C.TxOut C.CtxTx era)
+getOutputUtxoMap tx =
+    Map.fromList $ zipWith mkEntry [0 ..] outs
+  where
+    body = C.getTxBody tx
+    tid = C.getTxId body
+    outs = C.txOuts (C.getTxBodyContent body)
+    mkEntry ix out = (C.TxIn tid (C.TxIx ix), out)
+
+buildUtxoMap ::
+    -- | Script hashes provided in the configuration.
+    Set C.ScriptHash ->
+    {- | Minimal state where all the values are contained in the set of script
+    hashes provided.
+    -}
+    Map C.TxIn C.ScriptHash ->
+    -- | Input transaction
+    C.Tx era ->
+    -- | The new minimal state and the script hashes ejected from the map
+    (Map C.TxIn C.ScriptHash, Set C.ScriptHash)
+buildUtxoMap confHashes utxoMap tx =
+    let toEject = Map.restrictKeys utxoMap $ getTxInSet tx
+        toAdd =
+            Map.filter (flip Set.member confHashes) $
+                Map.mapMaybe getTxOutScriptAddr (getOutputUtxoMap tx)
+        newUtxoMap = Map.union (Map.difference utxoMap toEject) toAdd
+        ejectedElements = Set.fromList $ Map.elems toEject
+     in (newUtxoMap, ejectedElements)
+
+buildUtxoMapScan ::
+    (Monad m) =>
+    Set C.ScriptHash ->
+    Map C.TxIn C.ScriptHash ->
+    Scanl m (C.Tx era) (Map C.TxIn C.ScriptHash, (C.Tx era, Set C.ScriptHash))
+buildUtxoMapScan confHashes initialUtxoMap = Scanl.mkScanl step initial
+  where
+    initial = (initialUtxoMap, error "buildUtxoMapScan: Use with postscan")
+    step (utxoMap, _) tx = (tx,) <$> buildUtxoMap confHashes utxoMap tx
+
+transactionScan ::
+    (Monad m) =>
+    Set C.ScriptHash ->
+    Map C.TxIn C.ScriptHash ->
+    Scanl m (C.Tx era) (Map C.TxIn C.ScriptHash, (C.Tx era, Set C.ScriptHash))
+transactionScan confHashes initialUtxoMap =
+    second withAllIntersectingPolicies
+        <$> buildUtxoMapScan confHashes initialUtxoMap
+  where
+    getNonSpendIntersectingPolicies tx =
+        Set.intersection confHashes $
+            Set.unions
+                [ getMintPolicies tx
+                , getCertifyingScriptHashes tx
+                , getRewardingScriptHashes tx
+                ]
+    withAllIntersectingPolicies (tx, spendIntersectingPolicies) =
+        let nonSpendIntersectingPolicies =
+                getNonSpendIntersectingPolicies tx
+            allIntersectingPolicies =
+                Set.union nonSpendIntersectingPolicies spendIntersectingPolicies
+         in (tx, allIntersectingPolicies)
+
+selectScriptTriggeredTxs ::
+    Set C.ScriptHash ->
+    Map C.TxIn C.ScriptHash ->
+    [C.Tx era] ->
+    (Map C.TxIn C.ScriptHash, [C.Tx era])
+selectScriptTriggeredTxs confHashes initialUtxoMap txList =
+    Stream.fromList txList
+        & Stream.postscanl (transactionScan confHashes initialUtxoMap)
+        & fmap (second maybeIntersection)
+        & Stream.fold
+            ( Fold.tee
+                (maybe initialUtxoMap fst <$> Fold.latest)
+                (Fold.lmap snd (Fold.catMaybes Fold.toList))
+            )
+        & runIdentity
+  where
+    maybeIntersection (tx, intersection) =
+        if Set.null intersection then Nothing else Just tx
 
 data TransactionContext era where
     TransactionContext ::
         { ctxBlockHeader :: C.BlockHeader
         , ctxTransaction :: C.Tx era
-        , ctxRelevantScripts :: Map.Map C.ScriptHash [ResolvedScript]
         , ctxTransactionExecutionResult :: TransactionExecutionResult
         } ->
         TransactionContext era
@@ -124,12 +223,6 @@ getMintPolicies =
         . C.txMintValue
         . C.getTxBodyContent
         . C.getTxBody
-
-getInputScriptAddrs ::
-    Map C.TxIn (C.TxOut C.CtxUTxO era) -> C.Tx era -> Set C.ScriptHash
-getInputScriptAddrs utxoMap tx =
-    let utxoList = Map.elems $ Map.restrictKeys utxoMap $ getTxInSet tx
-     in Set.fromList $ mapMaybe getTxOutScriptAddr utxoList
 
 getCertifyingScriptHashes :: C.Tx era -> Set C.ScriptHash
 getCertifyingScriptHashes tx =
@@ -170,33 +263,19 @@ getRewardingScriptHashes tx =
                     L.ScriptHashObj hash -> Just $ C.fromShelleyScriptHash hash
                     _ -> Nothing
 
-getNonEmptyIntersection ::
-    ConfigMap ->
-    BlockContext era ->
-    C.Tx era ->
-    Maybe (Map.Map C.ScriptHash [ResolvedScript])
-getNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
-    let inpUtxoMap = C.unUTxO ctxInputUtxoMap
-        interestingScripts =
-            Map.restrictKeys cmScripts $
-                Set.unions
-                    [ getMintPolicies tx
-                    , getInputScriptAddrs inpUtxoMap tx
-                    , getCertifyingScriptHashes tx
-                    , getRewardingScriptHashes tx
-                    ]
-    guard (not $ Map.null interestingScripts)
-    pure interestingScripts
-
 -- Exists to force evaluation to happen here, instead of leaving it unevaluated
 -- in the TransactionContext
 mkTransactionContext ::
-    ContextBuilderMetrics -> ConfigMap -> BlockContext era -> C.Tx era -> IO (Maybe (TransactionContext era))
+    ContextBuilderMetrics ->
+    ConfigMap ->
+    BlockContext era ->
+    C.Tx era ->
+    IO (TransactionContext era)
 mkTransactionContext metrics cm bc tx =
     observeDuration metrics.mkTransactionContext_runtime $ do
         let res = mkTransactionContext' cm bc tx
         -- Ensure the result is actually forced so the metrics are accurate
-        !_ <- evaluate (maybe () forceExecutionResults res)
+        !_ <- evaluate (forceExecutionResults res)
         pure res
   where
     -- Forces the [Either _ _] so all elements are in WHNF, which should be enough
@@ -205,11 +284,10 @@ mkTransactionContext metrics cm bc tx =
     forceExecutionResults = foldl' (flip seq) () . toList . ctxTransactionExecutionResult
 
 mkTransactionContext' ::
-    ConfigMap -> BlockContext era -> C.Tx era -> Maybe (TransactionContext era)
+    ConfigMap -> BlockContext era -> C.Tx era -> TransactionContext era
 mkTransactionContext' cm bc tx = do
-    nei <- getNonEmptyIntersection cm bc tx
-    let eres = evaluateTransaction bc tx nei
-    pure $ TransactionContext bc.ctxBlockHeader tx nei eres
+    let eres = evaluateTransaction bc tx (cmScripts cm)
+     in TransactionContext bc.ctxBlockHeader tx eres
 
 --------------------------------------------------------------------------------
 -- Evaluation

@@ -15,7 +15,6 @@ import Cardano.Api.Shelley qualified as C
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, withExceptT)
-import Data.Function ((&))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text (Text)

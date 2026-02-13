@@ -23,7 +23,7 @@ import Cardano.Ledger.Plutus (
  )
 import Control.Concurrent (forkIO)
 import Control.Exception (throw)
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Data.Foldable (forM_)
 import Data.Function ((&))
 import Data.Map qualified as Map
@@ -35,7 +35,7 @@ import Ouroboros.Network.Protocol.ChainSync.Client (
 import PSR.Chain
 import PSR.ConfigMap qualified as CM
 import PSR.ContextBuilder
-import PSR.Metrics (Counter, Summary, incCounter, incCounterBy, observeDuration, regCounter, regSummary)
+import PSR.Metrics (Counter, Gauge, Summary, getGauge, incCounter, incCounterBy, observeDuration, regCounter, regGauge, regSummary, setGauge)
 import PSR.Types
 import PlutusLedgerApi.Common (
     MajorProtocolVersion (MajorProtocolVersion),
@@ -253,7 +253,7 @@ streamTransactionContext ::
     ContextBuilderMetrics -> CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
 streamTransactionContext cbMetrics cm ctx1@BlockContext{..} =
     Stream.fromList ctxTransactions
-        & Stream.mapMaybeM (mkTransactionContext cbMetrics cm ctx1)
+        & Stream.mapM (mkTransactionContext cbMetrics cm ctx1)
 
 --------------------------------------------------------------------------------
 -- Main
@@ -264,17 +264,51 @@ mainLoop events cm@CM.ConfigMap{..} points = do
     metrics <- initialiseMetrics
     cbMetrics <- initialiseContextBuilderMetrics
     streamBlocks metrics events cm points
-        & Stream.fold (Fold.drainMapM (uncurry (consumeBlock metrics cbMetrics)))
+        & Stream.fold (Fold.foldlM' (consumeBlock metrics cbMetrics) (pure Nothing))
+        & void
   where
-    consumeBlock metrics cbMetrics previousChainPt (Block bh sbe txList) =
+    confHashes = Map.keysSet cmScripts
+    consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, (Block bh sbe txList)) = do
+        let getUtxoMap =
+                case mUtxoMap of
+                    Nothing ->
+                        getSpendProjectedUtxoMap cmLocalNodeConn previousChainPt sbe confHashes
+                    Just utxoMap -> pure utxoMap
+            -- NOTE: We only consume a specific set of transactions and not all
+            -- the transactions in a block. We use the internal UTxO map to
+            -- decide which transaction meet the criteria.
+            consumeTransactions era selectedTxs = do
+                ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn previousChainPt era selectedTxs
+                streamTransactionContext cbMetrics cm ctx1
+                    & Stream.trace (traceTransactionExecutionResult events)
+                    & Stream.fold Fold.drain
+            withAlonzoEra era = do
+                prevUtxoMap <- getUtxoMap
+                let (newUtxoMap, selectedTxs) =
+                        selectScriptTriggeredTxs confHashes prevUtxoMap txList
+                observeMaxUtxoMapValue
+                    metrics.max_internal_utxo_map_size
+                    (Map.size newUtxoMap)
+                -- NOTE: In most cases the list of selected transactions is
+                -- going to be empty. It is non-empty if and only if,
+                -- 1. The block has transactions that involve script executions
+                -- 2. These scripts have a non-empty intersection with the
+                --    configured scripts
+                when (not (null selectedTxs)) $ consumeTransactions era selectedTxs
+                -- TODO: It is possible to maintain this count at all times. We
+                -- should do that instead of going through our map each and
+                -- every time.
+                pure $ Just newUtxoMap
         observeDuration metrics.mainLoop_consumeBlock_runtime $
             case proveAlonzoEraOnwards sbe of
-                Nothing -> pure ()
-                Just era -> do
-                    ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn previousChainPt era txList
-                    streamTransactionContext cbMetrics cm ctx1
-                        & Stream.trace (traceTransactionExecutionResult events)
-                        & Stream.fold Fold.drain
+                Nothing -> pure mUtxoMap
+                Just era -> withAlonzoEra era
+
+observeMaxUtxoMapValue :: Gauge -> Int -> IO ()
+observeMaxUtxoMapValue gauge currVal0 = do
+    let currVal = fromIntegral currVal0
+    prevVal <- getGauge gauge
+    when (currVal > prevVal) $ setGauge gauge currVal
 
 --------------------------------------------------------------------------------
 -- Module metrics
@@ -284,6 +318,8 @@ data StreamingMetrics = StreamingMetrics
     { mainLoop_consumeBlock_runtime :: Summary
     , blocks_since_start :: Counter
     , tx_since_start :: Counter
+    , -- TODO: Make the name consice.
+      max_internal_utxo_map_size :: Gauge
     }
 
 initialiseMetrics :: IO StreamingMetrics
@@ -300,4 +336,5 @@ initialiseMetrics = do
         regCounter
             "tx_since_start"
             "The number of transactions seen since application start"
+    max_internal_utxo_map_size <- regGauge "max_internal_utxo_map_size" ""
     pure StreamingMetrics{..}

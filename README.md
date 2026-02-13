@@ -19,7 +19,7 @@ To ensure that all relevant transactions are observed, PSR is able to control a 
 With [flake-enabled](https://nixos.wiki/wiki/Flakes) Nix, run Plutus Script Re-Executor directly
 
 ```bash
-nix run github:tweag/plutus-reexec
+nix run github:tweag/plutus-script-reexecutor
 ```
 
 Please note, that [our binary cache](http://plutus-script-reexecutor.cachix.org) provides only `aarch64-macos` packages, meaning you might need to build a lot of packages yourself.
@@ -27,7 +27,7 @@ Please note, that [our binary cache](http://plutus-script-reexecutor.cachix.org)
 You can install also install the binary in your profile with 
 
 ```bash
-nix profile install github:tweag/plutus-reexec
+nix profile install github:tweag/plutus-script-reexecutor
 ```
 
 The `plutus-script-reexecutor` command is then in your `$PATH` and is available anywhere.

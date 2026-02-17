@@ -9,6 +9,7 @@ module Populate (
     runCmd,
     flg,
     opt,
+    raw,
     drain,
     getPolicyId,
     Wallet (..),
@@ -26,6 +27,7 @@ module Populate (
     -- Main
     testScriptTrigger,
     escrow,
+    runFanout,
 ) where
 
 -------------------------------------------------------------------------------
@@ -35,6 +37,8 @@ module Populate (
 import Control.Concurrent (threadDelay)
 import Control.Monad (void)
 import Data.Function ((&))
+import Data.List (isPrefixOf)
+import Data.Maybe (fromJust)
 import Data.Word (Word8)
 import Streamly.Data.Array (Array)
 import Streamly.Data.Fold qualified as Fold
@@ -142,15 +146,22 @@ env_TX_SIGNED = env_POPULATE_WORK_DIR </> "tx.signed"
 -------------------------------------------------------------------------------
 
 type Command = String
-type CmdOption = (String, Maybe String)
+
+data CmdOption
+    = CoOpt String String
+    | CoFlg String
+    | CoRaw String
 
 opt :: (Show b) => String -> b -> CmdOption
-opt a b = (a, Just (quoted b))
+opt a b = CoOpt a (quoted b)
   where
     quoted = show
 
 flg :: String -> CmdOption
-flg a = (a, Nothing)
+flg = CoFlg
+
+raw :: String -> CmdOption
+raw = CoRaw
 
 optNetwork :: CmdOption
 optNetwork = opt "testnet-magic" env_CARDANO_TESTNET_MAGIC
@@ -167,7 +178,11 @@ runCmd :: Command -> [CmdOption] -> Stream IO (Array Word8)
 runCmd cmd args =
     Stream.before (putStrLn [str|> #{cmdStr}|]) (Cmd.toChunks cmdStr)
   where
-    cmdList = cmd : concatMap (\(k, v) -> ["--" ++ k, maybe "" id v]) args
+    cmdOptStr (CoOpt k v) = [str|--#{k} #{v}|]
+    cmdOptStr (CoFlg k) = [str|--#{k}|]
+    cmdOptStr (CoRaw v) = v
+
+    cmdList = cmd : map cmdOptStr args
     cmdStr = unwords cmdList
 
 getPolicyId :: FilePath -> IO String
@@ -553,6 +568,100 @@ testScriptTrigger :: IO ()
 testScriptTrigger = do
     testScriptTriggerWith =<< makeAppEnv "tracing-plutus-v2"
     testScriptTriggerWith =<< makeAppEnv "tracing-plutus-v3"
+
+--------------------------------------------------------------------------------
+-- Fanout
+--------------------------------------------------------------------------------
+
+data FanoutConfig = FanoutConfig
+    { fcValidatorAddr :: String
+    , fcValidatorFilePath :: String
+    , fcFaucetAddr :: String
+    }
+
+makeFanoutConfig :: FilePath -> IO FanoutConfig
+makeFanoutConfig alwaysTrueScriptPath = do
+    let fcValidatorFilePath = alwaysTrueScriptPath
+    fcFaucetAddr <- env_FAUCET_WALLET_ADDR
+    fcValidatorAddr <- getScriptAddress fcValidatorFilePath
+
+    printVar "fcFaucetAddr" fcFaucetAddr
+    printVar "fcValidatorAddr" fcValidatorAddr
+
+    pure $
+        FanoutConfig
+            { fcValidatorAddr
+            , fcValidatorFilePath
+            , fcFaucetAddr
+            }
+
+type UtxoRef = String
+
+fanout :: FanoutConfig -> Int -> [UtxoRef] -> IO [UtxoRef]
+fanout FanoutConfig{..} spread inpUtxos = do
+    ensureBlankWorkDir
+
+    faucetUtxo <- getFirstUtxoAt fcFaucetAddr
+    printVar "faucetUtxo" faucetUtxo
+
+    let optTxInAdditional =
+            [ opt "tx-in-script-file" fcValidatorFilePath
+            , opt "tx-in-redeemer-value" (10 :: Int)
+            , opt "tx-in-collateral" faucetUtxo
+            ]
+
+        txInList = (: optTxInAdditional) . opt "tx-in" <$> inpUtxos
+        txOutList =
+            opt "tx-out"
+                <$> replicate spread [str|#{fcValidatorAddr} + 1000000|]
+
+    printStep "fanout"
+    buildTransaction $
+        concat
+            [
+                [ opt "tx-in" faucetUtxo
+                , opt "change-address" fcFaucetAddr
+                , opt "out-file" env_TX_UNSIGNED
+                ]
+            , concat txInList
+            , txOutList
+            ]
+    finalizeCurrentTransaction
+    txId <- getTransactionId env_TX_SIGNED
+    printVar "txId" txId
+    waitTillExists $ fstOutput txId
+    let mkUtxoRef i = txId ++ "#" ++ show i
+    pure $ map mkUtxoRef [0 .. (spread - 1)]
+
+-- NOTE: The port (8090) and the tag (max_internal_utxo_map_size) is hard coded
+-- here.
+getInternalMapSize :: IO String
+getInternalMapSize = do
+    runCmd "curl" [flg "silent", raw "http://localhost:8090/metrics"]
+        & nonEmptyLines
+        & Stream.filter ("max_internal_utxo_map_size" `isPrefixOf`)
+        & Stream.fold Fold.one
+        & fmap (maybe "" id)
+
+runFanout :: IO ()
+runFanout = do
+    let alwaysTrueScriptPath =
+            env_LOCAL_CONFIG_DIR </> "tracing-plutus-v3/validator.plutus"
+    fc <- makeFanoutConfig alwaysTrueScriptPath
+    (nextSpread, utxos) <-
+        Stream.iterateM (iterFunc fc (+ 1)) (pure (1, []))
+            & Stream.take 10
+            & Stream.fold Fold.latest
+            & fmap fromJust
+    Stream.iterateM (iterFunc fc (\x -> x - 1)) (pure (nextSpread - 1, utxos))
+        & Stream.take 10
+        & Stream.fold Fold.drain
+  where
+    iterFunc fc incF (spread, inp) = do
+        outs <- fanout fc spread inp
+        ist <- getInternalMapSize
+        printStep $ "Spread: " ++ show spread ++ " [" ++ ist ++ "]"
+        pure (incF spread, outs)
 
 --------------------------------------------------------------------------------
 -- Escrow

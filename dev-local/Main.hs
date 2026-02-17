@@ -35,6 +35,7 @@ import Onchain.V3.Release qualified as ReleaseV3
 data PopulateCommand
     = PCTriggerTest
     | PCEscrow
+    | PCFanout
 
 data Command
     = StartLocalTestnet
@@ -56,6 +57,12 @@ populateCommandParser =
                 ( info
                     (pure PCEscrow)
                     (progDesc "Run the escrow scenario")
+                )
+            <> command
+                "fanout"
+                ( info
+                    (pure PCFanout)
+                    (progDesc "Run the fanout scenario")
                 )
         )
 commandParser :: Parser Command
@@ -279,4 +286,5 @@ main = do
         Clean -> clean
         Populate PCTriggerTest -> testScriptTrigger
         Populate PCEscrow -> escrow
+        Populate PCFanout -> runFanout
         Setup -> setup

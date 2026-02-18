@@ -289,9 +289,7 @@ mainLoop events cm@CM.ConfigMap{..} points = do
                 -- TODO: It is possible to maintain this count at all times. We
                 -- should do that instead of going through our map each and
                 -- every time.
-                observeMaxUtxoMapValue
-                    metrics.max_internal_utxo_map_size
-                    (Map.size newUtxoMap)
+                observeUtxoMapValue metrics (Map.size newUtxoMap)
                 -- NOTE: In most cases the list of selected transactions is
                 -- going to be empty. It is non-empty if and only if,
                 -- 1. The block has transactions that involve script executions
@@ -304,11 +302,13 @@ mainLoop events cm@CM.ConfigMap{..} points = do
                 Nothing -> pure mUtxoMap
                 Just era -> withAlonzoEra era
 
-observeMaxUtxoMapValue :: Gauge -> Int -> IO ()
-observeMaxUtxoMapValue gauge currVal0 = do
+observeUtxoMapValue :: StreamingMetrics -> Int -> IO ()
+observeUtxoMapValue metrics currVal0 = do
     let currVal = fromIntegral currVal0
-    prevVal <- getGauge gauge
-    when (currVal > prevVal) $ setGauge gauge currVal
+    setGauge metrics.internal_utxo_map_size_cur currVal
+    prevVal <- getGauge metrics.internal_utxo_map_size_max
+    when (currVal > prevVal) $
+        setGauge metrics.internal_utxo_map_size_max currVal
 
 --------------------------------------------------------------------------------
 -- Module metrics
@@ -319,7 +319,8 @@ data StreamingMetrics = StreamingMetrics
     , blocks_since_start :: Counter
     , tx_since_start :: Counter
     , -- TODO: Make the name consice.
-      max_internal_utxo_map_size :: Gauge
+      internal_utxo_map_size_cur :: Gauge
+    , internal_utxo_map_size_max :: Gauge
     }
 
 initialiseMetrics :: IO StreamingMetrics
@@ -336,5 +337,6 @@ initialiseMetrics = do
         regCounter
             "tx_since_start"
             "The number of transactions seen since application start"
-    max_internal_utxo_map_size <- regGauge "max_internal_utxo_map_size" ""
+    internal_utxo_map_size_cur <- regGauge "internal_utxo_map_size_cur" ""
+    internal_utxo_map_size_max <- regGauge "internal_utxo_map_size_max" ""
     pure StreamingMetrics{..}

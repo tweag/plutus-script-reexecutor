@@ -53,10 +53,11 @@ import System.FilePath ((<.>), (</>))
 -- Utils
 -------------------------------------------------------------------------------
 
+divider :: String
+divider = replicate 80 '-'
+
 printStep :: String -> IO ()
 printStep s = putStrLn . unlines $ ["", divider, s, divider]
-  where
-    divider = replicate 80 '-'
 
 drain :: (Monad m) => Stream m a -> m ()
 drain = Stream.fold Fold.drain
@@ -635,13 +636,12 @@ fanout FanoutConfig{..} spread inpUtxos = do
 
 -- NOTE: The port (8090) and the tag (max_internal_utxo_map_size) is hard coded
 -- here.
-getInternalMapSize :: IO String
-getInternalMapSize = do
+getInternalMapStats :: IO [String]
+getInternalMapStats = do
     runCmd "curl" [flg "silent", raw "http://localhost:8090/metrics"]
         & nonEmptyLines
-        & Stream.filter ("max_internal_utxo_map_size" `isPrefixOf`)
-        & Stream.fold Fold.one
-        & fmap (maybe "" id)
+        & Stream.filter ("internal_utxo_map_size" `isPrefixOf`)
+        & Stream.fold Fold.toList
 
 runFanout :: IO ()
 runFanout = do
@@ -659,8 +659,8 @@ runFanout = do
   where
     iterFunc fc incF (spread, inp) = do
         outs <- fanout fc spread inp
-        ist <- getInternalMapSize
-        printStep $ "Spread: " ++ show spread ++ " [" ++ ist ++ "]"
+        stats <- getInternalMapStats
+        putStrLn $ unlines $ divider : stats ++ [divider]
         pure (incF spread, outs)
 
 --------------------------------------------------------------------------------

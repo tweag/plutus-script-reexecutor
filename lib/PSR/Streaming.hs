@@ -259,6 +259,13 @@ streamTransactionContext cbMetrics cm ctx1@BlockContext{..} =
 -- Main
 --------------------------------------------------------------------------------
 
+-- TODO: Save the auxiliary state to disk when the application is exiting. When
+-- restarting, use the saved auxillary state instead of querying the state from
+-- the cardano-node.
+--
+-- NOTE: Think more about how we can reduce the bandwidth of the initial costly
+-- query.
+--
 mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
 mainLoop events cm@CM.ConfigMap{..} points = do
     metrics <- initialiseMetrics

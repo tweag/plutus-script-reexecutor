@@ -167,9 +167,20 @@ buildUtxoMapScan confHashes initialUtxoMap = Scanl.mkScanl step initial
 
 transactionScan ::
     (Monad m) =>
+    -- | Script hashes provided in the configuration.
     Set C.ScriptHash ->
+    -- | Previous minimal UTxO state
     Map C.TxIn C.ScriptHash ->
-    Scanl m (C.Tx era) (Map C.TxIn C.ScriptHash, (C.Tx era, Set C.ScriptHash))
+    Scanl
+        m
+        (C.Tx era)
+        ( Map C.TxIn C.ScriptHash -- UTxO state after tx is applied
+        , ( -- Transaction that is applied
+            C.Tx era
+          , -- Script hashes in the transaction that meet the criteria
+            Set C.ScriptHash
+          )
+        )
 transactionScan confHashes initialUtxoMap =
     second withAllIntersectingPolicies
         <$> buildUtxoMapScan confHashes initialUtxoMap
@@ -188,6 +199,7 @@ transactionScan confHashes initialUtxoMap =
                 Set.union nonSpendIntersectingPolicies spendIntersectingPolicies
          in (tx, allIntersectingPolicies)
 
+-- QUESTION: Does it make sense to specialize the folds to Identity?
 selectScriptTriggeredTxs ::
     Set C.ScriptHash ->
     Map C.TxIn C.ScriptHash ->
@@ -293,6 +305,9 @@ mkTransactionContext' cm bc tx = do
 -- Evaluation
 --------------------------------------------------------------------------------
 
+-- TODO: ResolvedScript is something that never changes and can be pretty
+-- large. It may be worth putting "Map.Map C.ScriptHash [ResolvedScript]" in a
+-- compact region.
 evaluateTransaction ::
     forall era.
     BlockContext era ->

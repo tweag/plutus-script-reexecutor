@@ -17,9 +17,8 @@ module PSR.ContextBuilder (
 -- Imports
 --------------------------------------------------------------------------------
 
-import Cardano.Api qualified as C
+import Cardano.Api qualified as C hiding (Certificate)
 import Cardano.Api.Ledger qualified as L
-import Cardano.Api.Shelley qualified as C
 import Cardano.Ledger.Alonzo qualified as Alonzo
 import Control.Exception (evaluate)
 import Data.Bifunctor (Bifunctor (second))
@@ -28,10 +27,10 @@ import Data.Function ((&))
 import Data.Functor.Identity (Identity (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Map.Ordered qualified as OMap
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import GHC.Exts qualified as List (IsList (..))
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashID)
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
@@ -141,9 +140,8 @@ getOutputUtxoMap tx =
 buildUtxoMap ::
     -- | Script hashes provided in the configuration.
     Set C.ScriptHash ->
-    {- | Minimal state where all the values are contained in the set of script
-    hashes provided.
-    -}
+    -- | Minimal state where all the values are contained in the set of script
+    --     hashes provided.
     Map C.TxIn C.ScriptHash ->
     -- | Input transaction
     C.Tx era ->
@@ -240,28 +238,12 @@ getMintPolicies =
         . C.getTxBody
 
 getCertifyingScriptHashes :: C.Tx era -> Set C.ScriptHash
-getCertifyingScriptHashes tx =
-    case C.txCertificates (C.getTxBodyContent (C.getTxBody tx)) of
-        C.TxCertificatesNone -> Set.empty
-        C.TxCertificates _ certMap ->
-            Set.fromAscList . mapMaybe unwrapAndExtract . map fst $
-                OMap.toAscList certMap
-  where
-    unwrapAndExtract :: C.Certificate era -> Maybe C.ScriptHash
-    unwrapAndExtract cert =
-        case cert of
-            C.ShelleyRelatedCertificate C.ShelleyToBabbageEraShelley txCert ->
-                C.fromShelleyScriptHash <$> L.getScriptWitnessTxCert txCert
-            C.ShelleyRelatedCertificate C.ShelleyToBabbageEraAllegra txCert ->
-                C.fromShelleyScriptHash <$> L.getScriptWitnessTxCert txCert
-            C.ShelleyRelatedCertificate C.ShelleyToBabbageEraMary txCert ->
-                C.fromShelleyScriptHash <$> L.getScriptWitnessTxCert txCert
-            C.ShelleyRelatedCertificate C.ShelleyToBabbageEraAlonzo txCert ->
-                C.fromShelleyScriptHash <$> L.getScriptWitnessTxCert txCert
-            C.ShelleyRelatedCertificate C.ShelleyToBabbageEraBabbage txCert ->
-                C.fromShelleyScriptHash <$> L.getScriptWitnessTxCert txCert
-            C.ConwayCertificate C.ConwayEraOnwardsConway txCert ->
-                C.fromShelleyScriptHash <$> L.getScriptWitnessTxCert txCert
+getCertifyingScriptHashes tx@(C.ShelleyTx sbe _) =
+    let scriptsSeq = C.convCertificates sbe $ C.txCertificates (C.getTxBodyContent (C.getTxBody tx))
+     in C.shelleyBasedEraConstraints sbe $
+            Set.fromList $
+                mapMaybe (fmap C.fromShelleyScriptHash . L.getScriptWitnessTxCert) $
+                    List.toList scriptsSeq
 
 getRewardingScriptHashes :: C.Tx era -> Set C.ScriptHash
 getRewardingScriptHashes tx =
@@ -322,6 +304,7 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
         C.AlonzoEraOnwardsAlonzo -> runEvaluation
         C.AlonzoEraOnwardsBabbage -> runEvaluation
         C.AlonzoEraOnwardsConway -> runEvaluation
+        C.AlonzoEraOnwardsDijkstra -> runEvaluation
   where
     runEvaluation ::
         (L.Script (C.ShelleyLedgerEra era) ~ Alonzo.AlonzoScript (C.ShelleyLedgerEra era)) =>

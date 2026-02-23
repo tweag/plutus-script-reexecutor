@@ -94,7 +94,6 @@ library
     , file-embed
     , filepath
     , microlens
-    , ordered-containers
     , ouroboros-consensus-cardano
     , ouroboros-network-protocols
     , plutus-ledger-api

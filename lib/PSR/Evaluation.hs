@@ -61,3 +61,4 @@ buildPlutusArgs (c, mDatum, mRedeemer) =
             (Just d, Just r) -> PlutusV2Args . LegacyPlutusArgs3 d r <$> decodeScriptContextFromData c
             _ -> fail "Failed to build PlutusV2Args"
         SPlutusV3 -> PlutusV3Args <$> decodeScriptContextFromData c
+        SPlutusV4 -> PlutusV4Args <$> decodeScriptContextFromData c

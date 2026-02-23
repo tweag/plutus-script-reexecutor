@@ -14,7 +14,7 @@ repository cardano-haskell-packages
 -- follows cardan-node
 index-state:
   , hackage.haskell.org 2025-11-17T07:08:04Z
-  , cardano-haskell-packages 2025-11-20T19:55:27Z
+  , cardano-haskell-packages 2026-02-09T17:36:58Z
 
 write-ghc-environment-files: never
 
@@ -24,31 +24,33 @@ benchmarks: true
 constraints:
   , streamly-core == 0.3.0.*
   , streamly == 0.11.0.*
-  -- NOTE: plutus-ledger-api is pinned to make plutus v3 scripts work. See:
-  -- https://github.com/tweag/plutus-script-reexecutor/issues/88#issuecomment-3724763782
-  , plutus-ledger-api == 1.45.0.0
 
 source-repository-package
     type: git
     location: https://github.com/tweag/ouroboros-network
-    tag: 63601d2bd9fa447c1f21efa1a2466e131945cf6e
-    --sha256: sha256-FC/CI67Jk4GNgPPyrWCWl5trCxeon2RSHzhHRZHluak=
+    tag: 461bbd3f6a27bc282d8a2b7c54e9ef929f30efb0
+    --sha256: sha256-lEw68KGx16CkBktEeS4xyth6zh9doLewQqxHAiUrxcQ=
     subdir:
+      ouroboros-network
       ouroboros-network-protocols
+      ouroboros-network-framework
+      ouroboros-network-mock
 
 source-repository-package
     type: git
     location: https://github.com/tweag/ouroboros-consensus
-    tag: 5ac599db62d287ee5db7823008f81a801e1384b8
-    --sha256: sha256-UnrXFqOBIUmjYwJJMy88KNEtVvHN5IHCXu+c9vzqQMw=
+    tag: 41798759677482cd0ff46354ef44fa4e20640134
+    --sha256: sha256-0iWWFuVAe2aKfGbjSW/WNSJwdHyixf326fwFIGOOcJI=
     subdir:
       ouroboros-consensus
+      ouroboros-consensus-cardano
       ouroboros-consensus-diffusion
+      ouroboros-consensus-protocol
 
 source-repository-package
     type: git
     location: https://github.com/tweag/cardano-api
-    tag: df4db4a4b49c54661743f62c487539e18426c5a5
-    --sha256: sha256-Es4iWiR4oFPV29KRA2/AlcI6+k50M4u/uDrWM4oToD4=
+    tag: e18961dffc32872d4293e06dddcf376cd1784b65
+    --sha256: sha256-OhA7E8Jl04eDybfpz0Ks+jH7X4yDUI4O3mY2lMj6eHE= 
     subdir:
       cardano-api

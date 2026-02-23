@@ -19,10 +19,6 @@ where
 --------------------------------------------------------------------------------
 
 import Cardano.Api qualified as C
-import Cardano.Api.Shelley qualified as C
-
--- TODO: export executeLocalStateQueryExprLeashed properly
-import Cardano.Api.Internal.IPC.Monad qualified as C
 import Cardano.Api.Ledger qualified as L
 import Cardano.Ledger.Plutus (
     LegacyPlutusArgs (..),
@@ -183,5 +179,14 @@ extractContextDatumRedeemer args =
                     SpendingScript _ optionalDatum -> toData <$> optionalDatum
                     _ -> Nothing
                 r = Just (toData (scriptContextRedeemer (unPlutusV3Args args)))
+             in
+                (c, d, r)
+        SPlutusV4 ->
+            let
+                c = toData (unPlutusV4Args args)
+                d = case scriptContextScriptInfo (unPlutusV4Args args) of
+                    SpendingScript _ optionalDatum -> toData <$> optionalDatum
+                    _ -> Nothing
+                r = Just (toData (scriptContextRedeemer (unPlutusV4Args args)))
              in
                 (c, d, r)

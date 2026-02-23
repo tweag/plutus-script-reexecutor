@@ -7,15 +7,13 @@ module PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley) where
 -- Imports
 --------------------------------------------------------------------------------
 
-import Cardano.Api.Internal.Plutus
-import Cardano.Api.Internal.ProtocolParameters
+import Cardano.Api hiding (evaluateTransactionExecutionUnitsShelley)
 
 import Cardano.Ledger.Alonzo.Core qualified as Ledger
 import Cardano.Ledger.Alonzo.Scripts qualified as Alonzo
 import Cardano.Ledger.Api qualified as L
 import Cardano.Ledger.Plutus qualified as Plutus
 
-import Cardano.Api.Shelley hiding (evaluateTransactionExecutionUnitsShelley)
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.ByteString.Short (ShortByteString)
 import Data.Map.Strict qualified as Map

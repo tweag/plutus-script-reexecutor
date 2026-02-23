@@ -10,10 +10,9 @@ module Export where
 import Cardano.Api (
     File (..),
     IsPlutusScriptLanguage,
-    PlutusScript,
+    PlutusScript (..),
     writeFileTextEnvelope,
  )
-import Cardano.Api.Shelley (PlutusScript (..))
 import Onchain.V2.Simple (CompiledCodeLang (..))
 import PlutusLedgerApi.Common (serialiseCompiledCode)
 
@@ -24,7 +23,9 @@ import PlutusLedgerApi.Common (serialiseCompiledCode)
 writePlutusScript ::
     forall lang a.
     (IsPlutusScriptLanguage lang) =>
-    FilePath -> CompiledCodeLang lang a -> IO ()
+    FilePath ->
+    CompiledCodeLang lang a ->
+    IO ()
 writePlutusScript filename (CompiledCodeLang compiledCode) = do
     let serialisedScript = serialiseCompiledCode compiledCode
         script = PlutusScriptSerialised serialisedScript :: PlutusScript lang

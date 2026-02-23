@@ -13,7 +13,7 @@ module PSR.Streaming (
 import PSR.Events.Interface (EvalError (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), TraceLogs (..))
 
 import Cardano.Api qualified as C
-import Cardano.Api.Internal.Pretty (Pretty (pretty), docToText)
+import Cardano.Api.Pretty (Pretty (pretty), docToText)
 import Cardano.Ledger.Binary (getVersion64)
 import Cardano.Ledger.Plutus (
     PlutusArgs,
@@ -200,6 +200,7 @@ traceTransactionExecutionResult events tc =
                         SPlutusV1 -> PlutusV1
                         SPlutusV2 -> PlutusV2
                         SPlutusV3 -> PlutusV3
+                        SPlutusV4 -> PlutusV3 -- TODO: upd to PlutusV4
                 (scriptContext, datum, redeemer) = extractContextDatumRedeemer args
                 context =
                     ExecutionContext

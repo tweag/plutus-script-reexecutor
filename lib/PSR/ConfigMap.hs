@@ -2,6 +2,7 @@
 
 module PSR.ConfigMap (
     ConfigMap (..),
+    RunningMode (..),
     ResolvedScript (..),
     readConfigMap,
 ) where
@@ -65,10 +66,19 @@ data ScriptSubDetails = ScriptSubDetails
 
 $(deriveJSONRecord "sd" ''ScriptSubDetails)
 
+data RunningMode
+    = RMSyncInitialLocalState
+    | RMEmptyInitialLocalState
+    | RMWithoutLocalState
+    deriving (Show, Eq)
+
+$(deriveJSONSimpleSum "RM" ''RunningMode)
+
 -- | Represents the config map file on disk
 data ConfigMapFile = ConfigMapFile
     { cmfStart :: Maybe C.ChainPoint
     , cmfScripts :: [ScriptSubDetails]
+    , cmfRunningMode :: RunningMode
     }
     deriving (Show, Eq)
 
@@ -82,6 +92,7 @@ data ConfigMap = ConfigMap
     , cmScripts :: Map C.ScriptHash [ResolvedScript]
     , cmLocalNodeConn :: C.LocalNodeConnectInfo
     , cmLeashId :: LeashID
+    , cmRunningMode :: RunningMode
     }
 
 -- | Information relating to a loaded script
@@ -202,4 +213,5 @@ readConfigMap scriptYaml networkId socketPath leashId = runExceptT $ do
             , cmScripts = Map.fromList kvPairs
             , cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
             , cmLeashId = leashId
+            , cmRunningMode = cmfRunningMode
             }

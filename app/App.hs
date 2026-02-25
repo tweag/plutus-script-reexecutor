@@ -73,6 +73,9 @@ generateScriptsExample = do
 #   slot: 11617
 #   blockHash: 9b65597bb73e21d5b58a1f5958f8b95324b142727efb2746c577998e93df3463
 
+# sync_initial_local_state | empty_initial_local_state | without_local_state
+running_mode: sync_initial_local_state
+
 scripts:
   # The target script hash that we want to re-run locally.
   # In this example it's just a random hash, so please replace with your own.

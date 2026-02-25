@@ -12,6 +12,7 @@ module PSR.ContextBuilder (
     getSpendProjectedUtxoMap,
     ProcessBlockTxList (..),
     processBlockTxList,
+    hasNonEmptyIntersection,
 ) where
 
 --------------------------------------------------------------------------------
@@ -141,8 +142,9 @@ getOutputUtxoMap tx =
 buildUtxoMap ::
     -- | Script hashes provided in the configuration.
     Set C.ScriptHash ->
-    -- | Minimal state where all the values are contained in the set of script
-    --     hashes provided.
+    {- | Minimal state where all the values are contained in the set of script
+    hashes provided.
+    -}
     Map C.TxIn C.ScriptHash ->
     -- | Input transaction
     C.Tx era ->
@@ -166,6 +168,23 @@ buildUtxoMapScan confHashes initialUtxoMap = Scanl.mkScanl step initial
   where
     initial = (initialUtxoMap, error "buildUtxoMapScan: Use with postscan")
     step (utxoMap, _) tx = (tx,) <$> buildUtxoMap confHashes utxoMap tx
+
+hasNonEmptyIntersection ::
+    ConfigMap ->
+    BlockContext era ->
+    C.Tx era ->
+    Bool
+hasNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
+    let inpUtxoMap = C.unUTxO ctxInputUtxoMap
+        interestingScripts =
+            Map.restrictKeys cmScripts $
+                Set.unions
+                    [ getMintPolicies tx
+                    , getInputScriptAddrs inpUtxoMap tx
+                    , getCertifyingScriptHashes tx
+                    , getRewardingScriptHashes tx
+                    ]
+     in not $ Map.null interestingScripts
 
 transactionScan ::
     (Monad m) =>
@@ -245,6 +264,12 @@ data TransactionContext era where
         , ctxTransactionExecutionResult :: TransactionExecutionResult
         } ->
         TransactionContext era
+
+getInputScriptAddrs ::
+    Map C.TxIn (C.TxOut C.CtxUTxO era) -> C.Tx era -> Set C.ScriptHash
+getInputScriptAddrs blockUtxoMap tx =
+    let utxoList = Map.elems $ Map.restrictKeys blockUtxoMap $ getTxInSet tx
+     in Set.fromList $ mapMaybe getTxOutScriptAddr utxoList
 
 getMintPolicies :: C.Tx era -> Set C.ScriptHash
 getMintPolicies =

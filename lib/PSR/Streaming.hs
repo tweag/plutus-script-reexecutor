@@ -253,6 +253,99 @@ streamTransactionContext cbMetrics cm ctx1@BlockContext{..} =
 -- Main
 --------------------------------------------------------------------------------
 
+consumeTransactions ::
+    Events -> CM.ConfigMap -> ContextBuilderMetrics -> BlockContext era -> IO ()
+consumeTransactions events cm cbMetrics ctx = do
+    streamTransactionContext cbMetrics cm ctx
+        & Stream.trace (traceTransactionExecutionResult events)
+        & Stream.fold Fold.drain
+
+mainLoopDirect ::
+    StreamingMetrics ->
+    ContextBuilderMetrics ->
+    Events ->
+    CM.ConfigMap ->
+    [C.ChainPoint] ->
+    IO ()
+mainLoopDirect metrics cbMetrics events cm@CM.ConfigMap{..} points = do
+    streamBlocks metrics events cm points
+        & Stream.fold (Fold.drainMapM consumeBlock)
+  where
+    withAlonzoEra ::
+        C.AlonzoEraOnwards era ->
+        C.BlockHeader ->
+        C.ChainPoint ->
+        [C.Tx era] ->
+        IO ()
+    withAlonzoEra era bh previousChainPt txList = do
+        blockContext <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era txList
+        let blockContext1 =
+                blockContext
+                    { ctxTransactions =
+                        filter
+                            (hasNonEmptyIntersection cm blockContext)
+                            (ctxTransactions blockContext)
+                    }
+        consumeTransactions events cm cbMetrics blockContext1
+
+    consumeBlock (previousChainPt, Block bh sbe txList) =
+        observeDuration metrics.mainLoop_consumeBlock_runtime $ do
+            case proveAlonzoEraOnwards sbe of
+                Nothing -> pure ()
+                Just era -> withAlonzoEra era bh previousChainPt txList
+
+mainLoopTracking ::
+    StreamingMetrics ->
+    ContextBuilderMetrics ->
+    Events ->
+    CM.ConfigMap ->
+    Map.Map C.TxIn C.ScriptHash ->
+    Stream IO (C.ChainPoint, Block) ->
+    IO (Map.Map C.TxIn C.ScriptHash)
+mainLoopTracking metrics cbMetrics events cm@CM.ConfigMap{..} initUtxoMap blockStream = do
+    blockStream
+        & Stream.fold (Fold.foldlM' consumeBlock (pure initUtxoMap))
+  where
+    confHashes = Map.keysSet cmScripts
+
+    withAlonzoEra ::
+        C.AlonzoEraOnwards era ->
+        C.BlockHeader ->
+        Map.Map C.TxIn C.ScriptHash ->
+        C.ChainPoint ->
+        [C.Tx era] ->
+        IO (Map.Map C.TxIn C.ScriptHash)
+    withAlonzoEra era bh prevUtxoMap previousChainPt txList = do
+        let ProcessBlockTxList{..} =
+                processBlockTxList confHashes prevUtxoMap txList
+            newUtxoMap = pbtFinalUtxoState
+            -- NOTE: We only consume a specific set of transactions and not all
+            -- the transactions in a block. We use the internal UTxO map to
+            -- decide which transaction meet the criteria.
+            selectedTxs = pbtFilteredTransactionList
+        incCounterBy metrics.tx_since_start pbtFullTransactionListLength
+        -- TODO: It is possible to maintain this count at all times. We should
+        -- do that instead of going through our map each and every time.
+        observeUtxoMapValue metrics (Map.size newUtxoMap)
+        -- NOTE: In most cases the list of selected transactions is going to be
+        -- empty. It is non-empty if and only if,
+        -- 1. The block has transactions that involve script executions
+        -- 2. These scripts have a non-empty intersection with the configured
+        --    scripts
+        when (not (null selectedTxs)) $ do
+            blockContext <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
+            consumeTransactions events cm cbMetrics blockContext
+        pure newUtxoMap
+
+    consumeBlock prevUtxoMap (previousChainPt, Block bh sbe txList) =
+        observeDuration metrics.mainLoop_consumeBlock_runtime $ do
+            case proveAlonzoEraOnwards sbe of
+                Nothing -> pure prevUtxoMap
+                Just era -> withAlonzoEra era bh prevUtxoMap previousChainPt txList
+
+-- NOTE: The block associated with the chain point in the configuration is not
+-- consumed. The block after that chain point are.
+--
 -- TODO: Save the auxiliary state to disk when the application is exiting. When
 -- restarting, use the saved auxillary state instead of querying the state from
 -- the cardano-node.
@@ -264,55 +357,26 @@ mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
 mainLoop events cm@CM.ConfigMap{..} points = do
     metrics <- initialiseMetrics
     cbMetrics <- initialiseContextBuilderMetrics
-    streamBlocks metrics events cm points
-        & Stream.fold (Fold.foldlM' (consumeBlock metrics cbMetrics) (pure Nothing))
-        & void
-  where
-    confHashes = Map.keysSet cmScripts
-    consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, Block bh sbe txList) = do
-        let getUtxoMap =
-                case mUtxoMap of
-                    Nothing ->
-                        getSpendProjectedUtxoMap cmLocalNodeConn cmLeashId previousChainPt sbe confHashes
-                    Just utxoMap -> pure utxoMap
-            -- NOTE: We only consume a specific set of transactions and not all
-            -- the transactions in a block. We use the internal UTxO map to
-            -- decide which transaction meet the criteria.
-            consumeTransactions era selectedTxs = do
-                ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
-                streamTransactionContext cbMetrics cm ctx1
-                    & Stream.trace (traceTransactionExecutionResult events)
-                    & Stream.fold Fold.drain
-            withAlonzoEra era = do
-                prevUtxoMap <- getUtxoMap
-                let ProcessBlockTxList{..} =
-                        processBlockTxList confHashes prevUtxoMap txList
-                    newUtxoMap = pbtFinalUtxoState
-                    selectedTxs = pbtFilteredTransactionList
-                incCounterBy metrics.tx_since_start pbtFullTransactionListLength
-                -- TODO: It is possible to maintain this count at all times. We
-                -- should do that instead of going through our map each and
-                -- every time.
-                observeUtxoMapValue metrics (Map.size newUtxoMap)
-                -- NOTE: In most cases the list of selected transactions is
-                -- going to be empty. It is non-empty if and only if,
-                -- 1. The block has transactions that involve script executions
-                -- 2. These scripts have a non-empty intersection with the
-                --    configured scripts
-                when (not (null selectedTxs)) $ consumeTransactions era selectedTxs
-                pure $ Just newUtxoMap
-        observeDuration metrics.mainLoop_consumeBlock_runtime $
-            case proveAlonzoEraOnwards sbe of
-                Nothing -> pure mUtxoMap
-                Just era -> withAlonzoEra era
-
-observeUtxoMapValue :: StreamingMetrics -> Int -> IO ()
-observeUtxoMapValue metrics currVal0 = do
-    let currVal = fromIntegral currVal0
-    setGauge metrics.internal_utxo_map_size_cur currVal
-    prevVal <- getGauge metrics.internal_utxo_map_size_max
-    when (currVal > prevVal) $
-        setGauge metrics.internal_utxo_map_size_max currVal
+    let confHashes = Map.keysSet cmScripts
+    case cmRunningMode of
+        CM.RMWithoutLocalState ->
+            mainLoopDirect metrics cbMetrics events cm points
+        CM.RMEmptyInitialLocalState -> void $ do
+            mainLoopTracking metrics cbMetrics events cm Map.empty $
+                streamBlocks metrics events cm points
+        CM.RMSyncInitialLocalState -> do
+            res <- Stream.uncons (streamBlocks metrics events cm points)
+            case res of
+                Nothing -> pure ()
+                Just ((previousChainPt, Block _ sbe _), blkStream) -> void $ do
+                    initUtxoMap <-
+                        getSpendProjectedUtxoMap
+                            cmLocalNodeConn
+                            cmLeashId
+                            previousChainPt
+                            sbe
+                            confHashes
+                    mainLoopTracking metrics cbMetrics events cm initUtxoMap blkStream
 
 --------------------------------------------------------------------------------
 -- Module metrics
@@ -326,6 +390,14 @@ data StreamingMetrics = StreamingMetrics
       internal_utxo_map_size_cur :: Gauge
     , internal_utxo_map_size_max :: Gauge
     }
+
+observeUtxoMapValue :: StreamingMetrics -> Int -> IO ()
+observeUtxoMapValue metrics currVal0 = do
+    let currVal = fromIntegral currVal0
+    setGauge metrics.internal_utxo_map_size_cur currVal
+    prevVal <- getGauge metrics.internal_utxo_map_size_max
+    when (currVal > prevVal) $
+        setGauge metrics.internal_utxo_map_size_max currVal
 
 initialiseMetrics :: IO StreamingMetrics
 initialiseMetrics = do

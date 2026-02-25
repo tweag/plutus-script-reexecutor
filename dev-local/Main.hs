@@ -164,6 +164,7 @@ createScriptsYaml = do
     writeFile
         (env_LOCAL_CONFIG_DIR </> "scripts.yaml")
         [str|
+running_mode: sync_initial_local_state
 scripts:
 #{tracingV2}
 #{tracingV3}

@@ -35,12 +35,19 @@ deriving newtype instance ToJSON EvalError
 deriving newtype instance ToJSON MajorProtocolVersion
 deriving instance ToJSON PlutusLedgerLanguage
 
+instance ToJSON ScriptInfo where
+    toJSON ScriptInfo{..} =
+        object
+            [ "name" .= toJSON name
+            , "hash" .= toJSON hash
+            ]
+
 instance ToJSON ExecutionEventPayload where
     toJSON ExecutionEventPayload{..} =
         object
             [ "transactionHash" .= toJSON context.transactionHash
-            , "scriptHash" .= toJSON context.scriptHash
-            , "scriptName" .= toJSON context.scriptName
+            , "targetScript" .= toJSON context.targetScript
+            , "shadowScript" .= toJSON context.shadowScript
             , "exUnits" .= toJSON exUnits
             , "traceLogs" .= toJSON traceLogs
             , "evalError" .= toJSON evalError

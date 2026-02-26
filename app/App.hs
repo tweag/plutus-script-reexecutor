@@ -79,11 +79,15 @@ running_mode: sync_initial_local_state
 scripts:
   # The target script hash that we want to re-run locally.
   # In this example it's just a random hash, so please replace with your own.
-  - script_hash: "22734734b6b0410cf4a0e3bd731fb98c55ac2b2a27b1eecb8d3b438c"
-    # List of substitution scripts we want to run on wherever the target script
+  - hash: "22734734b6b0410cf4a0e3bd731fb98c55ac2b2a27b1eecb8d3b438c"
+    
+    # The name is optional and might be helpful
+    # name: "My script"
+
+    # List of shadow scripts we want to run on wherever the target script
     # is found.
-    substitutions:
-      - # Name of the substitution script for easier identification (optional)
+    shadows:
+      - # Name of the shadow script for easier identification (optional)
         name: "Local Policy"
         # The hash of the substitution script. The plutus-script-reexecutor will
         # check and fail if the hash does not match.
@@ -92,7 +96,7 @@ scripts:
         # error out with the expected script hash.
         hash: "793f8c8cffba081b2a56462fc219cc8fe652d6a338b62c7b134876e7"
         source:
-          # The source of the substitution script. This can either be a
+          # The source of the shadow script. This can either be a
           # "file_path" or a "cbor_hex".
           inline:
               type: "PlutusScriptV2"

@@ -134,8 +134,18 @@ instance FromField Data where
 instance FromRow (Maybe ExecutionContext) where
     fromRow = do
         transactionHash <- maybeField
-        scriptName <- maybeField
-        scriptHash <- maybeField
+        targetScriptHash <- maybeField
+        targetScriptName <- maybeField
+
+        let
+            targetScript = (`ScriptInfo` targetScriptName) <$> targetScriptHash
+
+        shadowScriptHash <- maybeField
+        shadowScriptName <- maybeField
+
+        let
+            shadowScript = (`ScriptInfo` shadowScriptName) <$> shadowScriptHash
+
         ledgerLanguage <- maybeField
         majorProtocolVersion <- maybeField
         datum <- maybeField
@@ -164,8 +174,8 @@ instance FromRow (Maybe ExecutionContext) where
         pure $
             ExecutionContext
                 <$> transactionHash
-                <*> pure scriptName
-                <*> scriptHash
+                <*> targetScript
+                <*> shadowScript
                 <*> ledgerLanguage
                 <*> majorProtocolVersion
                 <*> pure datum

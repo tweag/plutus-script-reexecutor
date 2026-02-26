@@ -92,8 +92,10 @@ mkStorage metrics pool = do
                 params =
                     [ col "block_hash" hash
                     , col "transaction_hash" transactionHash
-                    , col "script_hash" scriptHash
-                    , col "script_name" scriptName
+                    , col "target_script_hash" targetScript.hash
+                    , col "target_script_name" targetScript.name
+                    , col "shadow_script_hash" shadowScript.hash
+                    , col "shadow_script_name" shadowScript.name
                     , col "ledger_language" ledgerLanguage
                     , col "major_protocol_version" majorProtocolVersion
                     , col "datum" datum
@@ -122,7 +124,7 @@ mkStorage metrics pool = do
             void $ createBlockIfNotExists conn blockHeader
             let params =
                     [ col "block_hash" hash
-                    , col "script_hash" scriptHash
+                    , col "target_script_hash" scriptHash
                     ]
             sqlInsert
                 metrics.addCancellationEvent_insert
@@ -149,7 +151,7 @@ mkStorage metrics pool = do
                     mkWhereWithParams $
                         filters <&> \case
                             ByNameOrHash scriptNameOrHash ->
-                                ( " (HEX(ec.script_hash) = UPPER(:name_or_hash) OR ec.script_name = :name_or_hash) "
+                                ( " (HEX(ec.targret_script_hash) = UPPER(:name_or_hash) OR ec.target_script_name = :name_or_hash) "
                                 , ":name_or_hash" := scriptNameOrHash
                                 )
                             ByTxId txId ->
@@ -164,8 +166,10 @@ mkStorage metrics pool = do
                     "SELECT b.slot_no, b.hash, b.block_no, \
                     \ ec.context_id, \
                     \ ec.transaction_hash, \
-                    \ ec.script_name, \
-                    \ ec.script_hash, \
+                    \ ec.target_script_hash, \
+                    \ ec.target_script_name, \
+                    \ ec.shadow_script_name, \
+                    \ ec.shadow_script_name, \
                     \ ec.ledger_language, \
                     \ ec.major_protocol_version, \
                     \ ec.datum, \

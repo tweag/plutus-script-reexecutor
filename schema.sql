@@ -11,11 +11,12 @@ CREATE TABLE IF NOT EXISTS execution_context (
   cost_model_params_id INTEGER NOT NULL REFERENCES cost_model_params (params_id),
 
   transaction_hash BLOB NOT NULL,
-  -- TODO:
-  -- 1. Rename this to target_script_hash.
-  -- 2. Add substituted_script_hash as another column.
-  script_hash BLOB NOT NULL,
-  script_name TEXT,
+
+  target_script_hash BLOB NOT NULL,
+  target_script_name TEXT,
+
+  shadow_script_hash BLOB NOT NULL,
+  shadow_script_name TEXT,
 
   ledger_language SMALLINT NOT NULL, 
   major_protocol_version SMALLINT NOT NULL,
@@ -53,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_execution_event_created_at ON execution_event(cre
 CREATE TABLE IF NOT EXISTS cancellation_event (
   event_id INTEGER PRIMARY KEY,
   block_hash BLOB NOT NULL REFERENCES block (hash),
-  script_hash BLOB NOT NULL,
+  target_script_hash BLOB NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_cancellation_event_block_hash ON cancellation_event(block_hash);

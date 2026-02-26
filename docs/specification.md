@@ -370,7 +370,7 @@ We consider the leashing implementation utilising the existing LoE mechanism.
 3. We introduce a `leashingWatcher` similar to existing `gddWatcher`. This watcher is responsible for watching the leashing state variable and the genesis LoE fragment variable. If either one of them is changed, the leashing watcher will recalculate the current LoE fragment, using the `sharedCandidatePrefix` function, and trigger manually the chain selection mechanism to consider the LoE fragment. This way we introduce the local chain candidates and provide the LoE fragment to the chain selection.
 4. Such implementation would support both scenarios - the genesis one and the leashing one. The leashing will work even if the genesis is not enabled.
 
-**Sum up**: the first two strategies seem to be too invasive and [we decided to implement leashing using the third strategy](adr/2026-02-23_004-node-leashing.md).
+**Summary**: the first two strategies seem to be too invasive and [we decided to implement leashing using the third strategy](adr/2026-02-23_004-node-leashing.md).
 
 #### 7. Configuration Map
 

@@ -9,6 +9,7 @@ module Populate (
     runCmd,
     flg,
     opt,
+    optString,
     raw,
     drain,
     getPolicyId,
@@ -157,6 +158,9 @@ opt :: (Show b) => String -> b -> CmdOption
 opt a b = CoOpt a (quoted b)
   where
     quoted = show
+
+optString :: String -> String -> CmdOption
+optString a b = CoOpt a b
 
 flg :: String -> CmdOption
 flg = CoFlg

@@ -256,11 +256,18 @@ startLocalTestnet = do
     setEnv "CARDANO_CLI" "cardano-cli"
     setEnv "CARDANO_NODE" "cardano-node"
     runCmd
+        "cardano-testnet create-env"
+        [ opt "num-pool-nodes" env_CARDANO_TESTNET_NUM_NODES
+        , flg "enable-new-epoch-state-logging"
+        , optString "output" env_TESTNET_WORK_DIR
+        , opt "testnet-magic" env_CARDANO_TESTNET_MAGIC
+        ]
+        & Console.putChunks
+    runCmd
         "cardano-testnet cardano"
         [ opt "num-pool-nodes" env_CARDANO_TESTNET_NUM_NODES
-        , flg "conway-era"
         , flg "enable-new-epoch-state-logging"
-        , opt "output-dir" env_TESTNET_WORK_DIR
+        , optString "node-env" env_TESTNET_WORK_DIR
         , opt "testnet-magic" env_CARDANO_TESTNET_MAGIC
         ]
         & Console.putChunks

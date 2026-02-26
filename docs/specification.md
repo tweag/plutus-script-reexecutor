@@ -389,17 +389,13 @@ Each script is specified by:
 
 ```yaml
 scripts:
-  - script_hash: 921169a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88b
+  - hash: 921169a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88b
     cbor_hex: 73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a804973475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a804973475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a804973475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049
 
-  - script_hash: 622229a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88b
-    name: my_script
-    path: my_custom_script.json
-
-  - script_hash: 777729a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88b
-    plain_uplc: |
-       (program 0.1.0 (con integer 42)) 
-
+    shadows:
+      - hash: 622229a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88b
+        name: my_script # optional
+        path: my_custom_script.json
 ```
 
 where `my_custom_script.json`:
@@ -432,8 +428,10 @@ Execution context:
 - `block_hash`: Block header hash
 - `cost_model_params_id`: Id of the cost model params 
 - `transaction_hash`: Transaction id 
-- `script_hash`: Script hash
-- `script_name`: Name of the script (optional)
+- `target_script_hash`: Target script hash
+- `target_script_name`: Name of the target script (optional)
+- `shadow_script_hash`: Shadow script hash
+- `shadow_script_name`: Name of the shadow script (optional)
 - `ledger_language`: The version the plutus ledger language
 - `major_protocol_version`: Major protocol version
 - `datum`: Datum of the script (optional)
@@ -459,7 +457,7 @@ Execution event:
 Cancellation event:
 - `event_id`: Id of the event
 - `block_hash`: Block header hash 
-- `script_hash`: Script hash that was cancelled
+- `target_script_hash`: Target script hash that was cancelled
 - `created_at`: Timestamp
 
 Selection event:
@@ -478,7 +476,10 @@ erDiagram
         int cost_model_params_id
         binary block_hash
         binary transaction_hash
-        binary script_hash
+        binary target_script_hash
+        text target_script_name
+        binary shadow_script_hash
+        text shadow_script_name
         int ledger_language
         int major_protocol_version
         string script_name
@@ -518,7 +519,7 @@ erDiagram
     CANCELLATION_EVENT {
         int event_id 
         binary block_hash
-        binary script_hash 
+        binary target_script_hash 
         timestamp created_at
     }
 ```

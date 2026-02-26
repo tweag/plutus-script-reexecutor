@@ -112,6 +112,8 @@ let
     pkgs.bash
     pkgs.git
     pkgs.which
+    pkgs.xxd
+    pkgs.sqlite
 
     pkgs.websocat
     pkgs.jq

@@ -3,20 +3,19 @@
 {- HLINT ignore "Use ||" -}
 module PSR.Events.Interface where
 
-import Cardano.Ledger.Plutus (CostModel, ExUnits)
-import Control.Concurrent.STM.TChan (TChan)
-import Data.Text (Text)
-import Data.Time.Clock (UTCTime)
-import GHC.Generics (Generic)
-import PlutusLedgerApi.Common (Data, MajorProtocolVersion, PlutusLedgerLanguage)
-
 import Cardano.Api (
     BlockHeader,
     ScriptHash,
     TxId,
  )
 import Cardano.Api qualified as C
+import Cardano.Ledger.Plutus (CostModel, ExUnits)
+import Control.Concurrent.STM.TChan (TChan)
 import Data.Maybe (isNothing)
+import Data.Text (Text)
+import Data.Time.Clock (UTCTime)
+import GHC.Generics (Generic)
+import PlutusLedgerApi.Common (Data, MajorProtocolVersion, PlutusLedgerLanguage)
 
 data EventType
     = Execution
@@ -40,13 +39,16 @@ data Event = Event
 
 newtype TraceLogs = TraceLogs {getTraceLogs :: [Text]} deriving (Eq, Show, Generic)
 
--- TODO: scriptHash is currently the targetScriptHash. We need to also track
--- substitutedScriptHash here which is essentially the canonical scriptName.
---
+data ScriptInfo = ScriptInfo
+    { hash :: C.ScriptHash
+    , name :: Maybe Text
+    }
+    deriving (Show, Generic)
+
 data ExecutionContext = ExecutionContext
     { transactionHash :: TxId
-    , scriptName :: Maybe Text
-    , scriptHash :: ScriptHash
+    , targetScript :: ScriptInfo
+    , shadowScript :: ScriptInfo
     , ledgerLanguage :: PlutusLedgerLanguage
     , majorProtocolVersion :: MajorProtocolVersion
     , datum :: Maybe Data
@@ -77,7 +79,8 @@ data EventFilterParams = EventFilterParams
     , _eventFilterParam_slot_end :: Maybe Integer
     , _eventFilterParam_limit :: Maybe Integer
     , _eventFilterParam_offset :: Maybe Integer
-    , _eventFilterParam_name_or_script_hash :: Maybe Text
+    , _eventFilterParam_target_name_or_script_hash :: Maybe Text
+    , _eventFilterParam_shadow_name_or_script_hash :: Maybe Text
     }
     deriving (Generic)
 
@@ -90,31 +93,48 @@ data Events = Events
     }
 
 eventMatchesFilter :: EventFilterParams -> Event -> Bool
-eventMatchesFilter (EventFilterParams typ time_begin time_end slot_begin slot_end _limit _offset name_or_script_hash) event =
-    and
-        [ check (event.eventType ==) typ
-        , check (event.createdAt >=) time_begin
-        , check (event.createdAt <=) time_end
-        , check (slotNo >=) slot_begin
-        , check (slotNo <=) slot_end
-        , or
-            [ isNothing name_or_script_hash
-            , name_or_script_hash == mScriptName
-            , name_or_script_hash == mScriptHashText
+eventMatchesFilter
+    ( EventFilterParams
+            typ
+            time_begin
+            time_end
+            slot_begin
+            slot_end
+            _limit
+            _offset
+            target_name_or_script_hash
+            shadow_name_or_script_hash
+        )
+    event =
+        and
+            [ check (event.eventType ==) typ
+            , check (event.createdAt >=) time_begin
+            , check (event.createdAt <=) time_end
+            , check (slotNo >=) slot_begin
+            , check (slotNo <=) slot_end
+            , or
+                [ isNothing target_name_or_script_hash
+                , target_name_or_script_hash == mTargetScriptName
+                , target_name_or_script_hash == mTargetScriptHash
+                ]
+            , or
+                [ isNothing shadow_name_or_script_hash
+                , shadow_name_or_script_hash == mShadowScriptName
+                , shadow_name_or_script_hash == mShadowScriptHash
+                ]
             ]
-        ]
-  where
-    check :: (a -> Bool) -> Maybe a -> Bool
-    check = maybe True
+      where
+        check :: (a -> Bool) -> Maybe a -> Bool
+        check = maybe True
 
-    C.BlockHeader (fromIntegral . C.unSlotNo -> slotNo) _hash _blockno = event.blockHeader
+        C.BlockHeader (fromIntegral . C.unSlotNo -> slotNo) _hash _blockno = event.blockHeader
 
-    mScriptName = case event.payload of
-        ExecutionPayload eep -> eep.context.scriptName
-        CancellationPayload{} -> Nothing
-        SelectionPayload -> Nothing
+        (mShadowScriptName, mShadowScriptHash) = case event.payload of
+            ExecutionPayload eep -> (eep.context.shadowScript.name, Just $ C.textShow eep.context.shadowScript.hash)
+            CancellationPayload{} -> (Nothing, Nothing)
+            SelectionPayload -> (Nothing, Nothing)
 
-    mScriptHashText = fmap C.textShow $ case event.payload of
-        ExecutionPayload eep -> Just eep.context.scriptHash
-        CancellationPayload hash -> Just hash
-        SelectionPayload -> Nothing
+        (mTargetScriptName, mTargetScriptHash) = case event.payload of
+            ExecutionPayload eep -> (eep.context.targetScript.name, Just $ C.textShow eep.context.targetScript.hash)
+            CancellationPayload hash -> (Nothing, Just $ C.textShow hash) -- TODO: we can lookup the the script name from the configmap
+            SelectionPayload -> (Nothing, Nothing)

@@ -1,6 +1,6 @@
 # Plutus Script Re-Executor
 
-A tool that follows a Cardano node, looks for user-specified script hashes and executes user-provided scripts instead of the original ones. This enables running debugging versions of Plutus Core scripts - with traces - against the live ledger state provided by the node, enabling detailed on-chain monitoring. 
+A tool that follows a Cardano node, looks for user-specified script hashes and shadows them - executes user-provided scripts instead of the original ones. This enables running debugging versions of Plutus Core scripts - with traces - against the live ledger state provided by the node, enabling detailed on-chain monitoring. 
 
 ## Motivation 
 
@@ -36,7 +36,7 @@ Or you can build it directly, see [development](#Development) section.
 
 ### Usage 
 
-The re-executor takes a configuration file with scripts to substitute:
+The re-executor takes a configuration file with scripts to shadow:
 
 ```bash
 plutus-script-reexecutor --script-yaml scripts.yaml

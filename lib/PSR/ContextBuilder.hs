@@ -177,7 +177,7 @@ hasNonEmptyIntersection ::
 hasNonEmptyIntersection ConfigMap{..} BlockContext{..} tx = do
     let inpUtxoMap = C.unUTxO ctxInputUtxoMap
         interestingScripts =
-            Map.restrictKeys cmScripts $
+            Map.restrictKeys cmShadowScripts $
                 Set.unions
                     [ getMintPolicies tx
                     , getInputScriptAddrs inpUtxoMap tx
@@ -326,7 +326,7 @@ mkTransactionContext metrics cm bc tx =
 mkTransactionContext' ::
     ConfigMap -> BlockContext era -> C.Tx era -> TransactionContext era
 mkTransactionContext' cm bc tx = do
-    let eres = evaluateTransaction bc tx (cmScripts cm)
+    let eres = evaluateTransaction bc tx (cmShadowScripts cm)
      in TransactionContext bc.ctxBlockHeader tx eres
 
 --------------------------------------------------------------------------------
@@ -354,7 +354,7 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
         TransactionExecutionResult
     runEvaluation =
         evaluateTransactionExecutionUnitsShelley
-            subMap
+            shadowsMap
             era
             ctxSysStart
             (C.toLedgerEpochInfo ctxEraHistory)
@@ -365,5 +365,5 @@ evaluateTransaction BlockContext{..} (C.ShelleyTx era tx) scriptMap = do
     -- TODO: Report this error to the user.
     mkLedgerScript ResolvedScript{..} = do
         scr <- C.toScriptInEra (C.convert ctxAlonzoEraOnwards) rsScriptFileContent
-        pure (rsName, C.toShelleyScript scr)
-    subMap = Map.map (mapMaybe mkLedgerScript) scriptMap
+        pure (rsName, rsScriptHash, C.toShelleyScript scr)
+    shadowsMap = Map.map (mapMaybe mkLedgerScript) scriptMap

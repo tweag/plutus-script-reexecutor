@@ -300,26 +300,33 @@ failure      = acquireFailurePointTooOld
              / acquireFailureStateIsBusy
 ```
 
-2. Either by adding a boolean flag to the existing `msgAcquire` messages:
+2. Either by adding a leashing client identifier to the existing messages:
 
 ```
-   = [0, base.point, ? bool]
-             / [8, ? bool]
-             / [10, ? bool]
+msgAcquire   = [0, base.point, ? word32]
+             / [8, ? words32]
+             / [10, ? words32]
+
+...
+
+msgRelease   = [5, ? word32]
 ```
 
-or by adding new "leashed" versions:
+or by adding new leashing messages:
 
 ```
 msgAcquire   = [0, base.point]
              / [8]
              / [10]
-             / [12, base.point] ; leashed `MsgAcquire` of `SpecificPoint pt`
-             / [13] ; leashed `MsgAcquire` of `VolatileTip`
-             / [14] ; leashed `MsgAcquire` of `ImmutableTip`
+             / [12, base.point, word32] ; leashing `MsgAcquire` of `SpecificPoint pt`
+             / [13, word32] ; leashing `MsgAcquire` of `VolatileTip`
+             / [14, word32] ; leashing `MsgAcquire` of `ImmutableTip`
+
+msgRelease   = [5]
+             / [15, word32]
 ```
 
-`msgReAcquire` will behave depending on which version of `msgAcquire` was sent.
+`msgReAcquire` will behave depending on which version of `msgAcquire` was previously sent.
 
 **Cardano node changes**:
 
@@ -353,9 +360,17 @@ The cardano-node already uses the "Limit on Eagerness" mechanism to limit itself
 
 https://ouroboros-consensus.cardano.intersectmbo.org/docs/references/miscellaneous/genesis_design/#the-limit-on-eagerness-component
 
-We can implement leashing there utilising the existing LoE component.
+We consider the leashing implementation utilising the existing LoE mechanism.
 
-**Sum up**: the first two strategies seem to be too invasive and we are investigating the third strategy to implement the leashing.
+1. We introduce a `LeashingState blk = Map LeashID (AnchoredFragment (HeaderWithTime blk))` structure to keep the leashing fragments associated with each leashing client.
+2. We update the `LocalStateQuery` server to interact with that state:
+    - If a new client connects to the server with `leashId`, the server will put the `leashId` together with the client's leashing fragment into the leashing state;
+    - The leashing fragment is calculated using the current chain of the node and the `Target (Point Block)` provided by user. It's either a `SpecificPoint pt`, `ImmutableTip` or `VolatileTip`.
+    - If the connected client sends the `MsgRelease` with the `leashId`, the server will remove the leashing fragment from the state;
+3. We introduce a `leashingWatcher` similar to existing `gddWatcher`. This watcher is responsible for watching the leashing state variable and the genesis LoE fragment variable. If either one of them is changed, the leashing watcher will recalculate the current LoE fragment, using the `sharedCandidatePrefix` function, and trigger manually the chain selection mechanism to consider the LoE fragment. This way we introduce the local chain candidates and provide the LoE fragment to the chain selection.
+4. Such implementation would support both scenarios - the genesis one and the leashing one. The leashing will work even if the genesis is not enabled.
+
+**Summary**: the first two strategies seem to be too invasive and [we decided to implement leashing using the third strategy](adr/2026-02-23_004-node-leashing.md).
 
 #### 7. Configuration Map
 

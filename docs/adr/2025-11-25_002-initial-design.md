@@ -3,12 +3,12 @@ slug: 2
 title: | 
   2. Initial design 
 authors: [tweag-ev-ak]
-tags: [Proposed]
+tags: [Accepted]
 ---
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 

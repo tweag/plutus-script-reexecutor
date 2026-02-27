@@ -41,7 +41,7 @@ tryRunScriptInContext ResolvedScript{rsScriptForEvaluation} ExecutionContext{..}
                     , pwcArgs
                     , pwcExUnits = exMaxBudget
                     , pwcCostModel = costModel
-                    , pwcScriptHash = coerce scriptHash
+                    , pwcScriptHash = coerce targetScript.hash
                     }
 
         case evalPwcExUnitsWithLogs pwc exMaxBudget of

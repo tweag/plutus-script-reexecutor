@@ -89,7 +89,7 @@ deriving instance Show Block
 type ScriptName = Text
 
 type ScriptSubtitutionInfo era =
-    Map C.ScriptHash [(Maybe ScriptName, L.AlonzoScript era)]
+    Map C.ScriptHash [(Maybe ScriptName, C.ScriptHash, L.AlonzoScript era)]
 
 -- NOTE: We are omiting a lot of information here. We can add it on demand if
 -- required.
@@ -119,7 +119,7 @@ type TransactionExecutionResult =
         C.ScriptWitnessIndex
         ( Either
             PreEvaluationPlutusError
-            [(Maybe ScriptName, PwcExecutionResult_)]
+            [(Maybe ScriptName, C.ScriptHash, PwcExecutionResult_)]
         )
 
 type RedeemerReportWithLogs era =
@@ -127,5 +127,5 @@ type RedeemerReportWithLogs era =
         (L.PlutusPurpose L.AsIx era)
         ( Either
             PreEvaluationPlutusError
-            [(Maybe ScriptName, PwcExecutionResult era)]
+            [(Maybe ScriptName, C.ScriptHash, PwcExecutionResult era)]
         )

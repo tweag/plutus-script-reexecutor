@@ -124,13 +124,13 @@ tracingYamlContents scriptsDirName = do
                 then ""
                 else
                     [str|
-  - script_hash: "#{validatorPolicyId}"
-    substitutions:
+  - hash: "#{validatorPolicyId}"
+    shadows:
 |]
     pure
         [str|
-  - script_hash: "#{policyPolicyId}"
-    substitutions:
+  - hash: "#{policyPolicyId}"
+    shadows:
       - name: "Local Policy"
         hash: "#{policyDebugPolicyId}"
         source:
@@ -148,8 +148,8 @@ escrowYamlContents = do
     escrowDebugPolicyId <- getPolicyId $ env_LOCAL_CONFIG_DIR </> "escrow-debug.plutus"
     pure
         [str|
-  - script_hash: "#{escrowPolicyId}"
-    substitutions:
+  - hash: "#{escrowPolicyId}"
+    shadows:
       - name: "Escrow"
         hash: "#{escrowDebugPolicyId}"
         source:

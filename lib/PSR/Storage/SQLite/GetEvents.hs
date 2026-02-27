@@ -47,9 +47,13 @@ getEvents getEvents_select pool EventFilterParams{..} =
                                 \ WHEN :event_type = 'selection' THEN s.block_hash \
                                 \ END) IS NOT NULL"
                                 ":event_type"
-                        , _eventFilterParam_name_or_script_hash
+                        , _eventFilterParam_target_name_or_script_hash
                             <&> mkNamedParam
-                                "ec.script_name = :name_or_hash or HEX(ec.script_hash) = UPPER(:name_or_hash) or HEX(c.script_hash) = UPPER(:name_or_hash)"
+                                "ec.target_script_name = :name_or_hash or HEX(ec.target_script_hash) = UPPER(:name_or_hash) or HEX(c.target_script_hash) = UPPER(:name_or_hash)"
+                                ":name_or_hash"
+                        , _eventFilterParam_shadow_name_or_script_hash
+                            <&> mkNamedParam
+                                "ec.shadow_script_name = :name_or_hash or HEX(ec.shadow_script_hash) = UPPER(:name_or_hash)"
                                 ":name_or_hash"
                         , _eventFilterParam_slot_begin
                             <&> mkNamedParam
@@ -84,8 +88,10 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 \ ee.exec_budget_cpu, \
                 \ ee.exec_budget_mem, \
                 \ ec.transaction_hash, \
-                \ ec.script_name, \
-                \ ec.script_hash, \
+                \ ec.target_script_hash, \
+                \ ec.target_script_name, \
+                \ ec.shadow_script_hash, \
+                \ ec.shadow_script_name, \
                 \ ec.ledger_language, \
                 \ ec.major_protocol_version, \
                 \ ec.datum, \
@@ -112,7 +118,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
 
         pure $
             rows <&> \case
-                (blockHeader :. (eventType, createdAt, mScriptHash, mTraceLogs, evalError, mExBudgetCpu, mExBudgetMem) :. mExecutionContext) ->
+                (blockHeader :. (eventType, createdAt, mCancellationScriptHash, mTraceLogs, evalError, mExBudgetCpu, mExBudgetMem) :. mExecutionContext) ->
                     let
                         payload = case eventType of
                             Execution ->
@@ -129,7 +135,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                                         -- TODO: handle the error properly
                                         error "Failed to retrieve execution event"
                             Cancellation ->
-                                case mScriptHash of
+                                case mCancellationScriptHash of
                                     Just sh -> CancellationPayload sh
                                     _ ->
                                         -- TODO: handle the error properly

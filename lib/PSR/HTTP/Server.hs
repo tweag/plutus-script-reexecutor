@@ -16,7 +16,7 @@ import Network.Wai.Middleware.Prometheus (prometheus)
 import Network.WebSockets.Connection (PendingConnection)
 import PSR.ConfigMap (ConfigMap (..))
 import PSR.Evaluation
-import PSR.Events.Interface (EvalError (..), EventFilterParams (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), TraceLogs (..))
+import PSR.Events.Interface (EvalError (..), EventFilterParams (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), ScriptInfo (..), TraceLogs (..))
 import PSR.HTTP.API as API
 import PSR.HTTP.WebSocket.Events (eventsWebSocketHandler)
 import PSR.Storage.Interface (FilterBy (..), Storage (..))
@@ -48,10 +48,11 @@ server cm maybeStorage events = siteH
 
     eventsHandler filterParams mName = case maybeStorage of
         Nothing -> pure []
-        Just storage -> liftIO $ storage.getEvents (filtersWithName mName filterParams)
+        Just storage -> liftIO $ storage.getEvents (filtersWithTargetName mName filterParams)
 
     executeH :: Text -> ExecuteParams -> Handler [Event]
     executeH nameOrHash ExecuteParams{..} = do
+        -- TODO: Allow to filter by shadow nameOrHash?
         let filters = ByNameOrHash nameOrHash : catMaybes [ByTxId <$> _ep_tx_id, ByContextId <$> _ep_context_id]
 
         case maybeStorage of
@@ -60,7 +61,7 @@ server cm maybeStorage events = siteH
                 contexts <- liftIO $ storage.getExecutionContexts filters
                 executions <-
                     forM contexts $ \(blockHeader, eci, context@ExecutionContext{..}) ->
-                        forM (Map.lookup scriptHash cm.cmScripts) $ \rss -> forM rss $ \rs -> do
+                        forM (Map.lookup targetScript.hash cm.cmShadowScripts) $ \rss -> forM rss $ \rs -> do
                             (_, exUnits, logs, evalError') <- tryRunScriptInContext rs context
                             liftIO $
                                 events.addExecutionEvent blockHeader eci $
@@ -83,12 +84,12 @@ server cm maybeStorage events = siteH
 
     eventsWSHandler :: EventFilterParams -> Maybe Text -> PendingConnection -> Handler ()
     eventsWSHandler filterParams mName pconn =
-        liftIO $ eventsWebSocketHandler events (filtersWithName mName filterParams) pconn
+        liftIO $ eventsWebSocketHandler events (filtersWithTargetName mName filterParams) pconn
 
-    filtersWithName :: Maybe Text -> EventFilterParams -> EventFilterParams
-    filtersWithName Nothing filterParams = filterParams
-    filtersWithName (Just name) filterParams =
-        filterParams{_eventFilterParam_name_or_script_hash = Just name}
+    filtersWithTargetName :: Maybe Text -> EventFilterParams -> EventFilterParams
+    filtersWithTargetName Nothing filterParams = filterParams
+    filtersWithTargetName (Just name) filterParams =
+        filterParams{_eventFilterParam_target_name_or_script_hash = Just name}
 
 run :: ConfigMap -> Maybe Storage -> Events -> Warp.Port -> IO ()
 run cm maybeStorage events port = do

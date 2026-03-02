@@ -23,7 +23,7 @@ import Cardano.Ledger.Plutus (
  )
 import Control.Concurrent (forkIO)
 import Control.Exception (throw)
-import Control.Monad (void, when)
+import Control.Monad (unless, void, when)
 import Data.Foldable (forM_)
 import Data.Function ((&))
 import Data.Map qualified as Map
@@ -234,14 +234,16 @@ streamChainSyncEvents ::
 streamChainSyncEvents conn points =
     Stream.fromCallback (void . forkIO . subscribeToChainSyncEvents conn points)
 
-streamBlocks :: StreamingMetrics -> Events -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, Block)
+-- HACK: Returns the previous and current chainpoint
+streamBlocks :: StreamingMetrics -> Events -> CM.ConfigMap -> [C.ChainPoint] -> Stream IO (C.ChainPoint, C.ChainPoint, Block)
 streamBlocks metrics events CM.ConfigMap{..} points =
     streamChainSyncEvents cmLocalNodeConn points
         & Stream.trace (const (incCounter metrics.blocks_since_start))
         & Stream.trace (traceChainSyncEvent events)
-        & fmap getEventBlock
+        -- & fmap getEventBlock
+        & fmap ((\(p, txs) -> (p, (p, txs))) . getEventBlock)
         & Stream.postscanl unshiftFst
-        & Stream.mapMaybe (\(a, b) -> (a,) <$> b)
+        & Stream.mapMaybe (\(a, (p, txs)) -> (a,p,) <$> txs)
 
 streamTransactionContext ::
     ContextBuilderMetrics -> CM.ConfigMap -> BlockContext era -> Stream IO (TransactionContext era)
@@ -264,12 +266,14 @@ mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
 mainLoop events cm@CM.ConfigMap{..} points = do
     metrics <- initialiseMetrics
     cbMetrics <- initialiseContextBuilderMetrics
+    -- TODO: Probably wrong, but ImmutableTip also doesn't work
+    print =<< C.reacquireLeash cmLocalNodeConn cmLeashId C.VolatileTip
     streamBlocks metrics events cm points
         & Stream.fold (Fold.foldlM' (consumeBlock metrics cbMetrics) (pure Nothing))
         & void
   where
     confHashes = Map.keysSet cmScripts
-    consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, Block bh sbe txList) = do
+    consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, thisBlockChainPoint, Block bh sbe txList) = do
         let getUtxoMap =
                 case mUtxoMap of
                     Nothing ->
@@ -299,7 +303,10 @@ mainLoop events cm@CM.ConfigMap{..} points = do
                 -- 1. The block has transactions that involve script executions
                 -- 2. These scripts have a non-empty intersection with the
                 --    configured scripts
-                when (not (null selectedTxs)) $ consumeTransactions era selectedTxs
+                unless (null selectedTxs) $
+                    consumeTransactions era selectedTxs
+                res <- C.reacquireLeash cmLocalNodeConn cmLeashId $ C.SpecificPoint thisBlockChainPoint
+                either print (const (pure ())) res
                 pure $ Just newUtxoMap
         observeDuration metrics.mainLoop_consumeBlock_runtime $
             case proveAlonzoEraOnwards sbe of

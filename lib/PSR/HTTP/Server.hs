@@ -16,6 +16,7 @@ import Data.Traversable (forM)
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.Wai.Middleware.Prometheus (prometheus)
 import Network.WebSockets.Connection (PendingConnection)
+import PSR.Chain qualified as PSR
 import PSR.ConfigMap (ConfigMap (..))
 import PSR.Evaluation
 import PSR.Events.Interface (EvalError (..), EventFilterParams (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), TraceLogs (..))
@@ -57,6 +58,8 @@ server leashRef cm maybeStorage events = siteH
     leashingH =
         LeashingRoutes
             { lrStatus = liftIO $ IORef.readIORef leashRef
+            , lrLeash = liftIO $ PSR.leashNodeTip leashRef (cmLocalNodeConn cm) (cmLeashId cm)
+            , lrUnleash = liftIO $ PSR.unleashNode leashRef (cmLocalNodeConn cm) (cmLeashId cm)
             }
 
     executeH :: Text -> ExecuteParams -> Handler [Event]

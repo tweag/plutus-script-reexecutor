@@ -11,6 +11,8 @@ module PSR.Chain (
     getTxInSet,
     runLocalStateQueryExpr,
     extractContextDatumRedeemer,
+    leashNodeTip,
+    unleashNode,
 )
 where
 
@@ -140,6 +142,22 @@ runLocalStateQueryExpr ::
     IO a
 runLocalStateQueryExpr refLeashPoint conn leashId cp query =
     runLocalStateQueryExprWith refLeashPoint conn leashId cp False query
+
+leashNodeTip ::
+    IORef (Maybe C.ChainPoint) -> C.LocalNodeConnectInfo -> Net.Query.LeashID -> IO ()
+leashNodeTip leashRef conn leashId = void $ do
+    tip <- C.chainTipToChainPoint <$> C.getLocalChainTip conn
+    runLocalStateQueryExprWith leashRef conn leashId tip False sysStartQuery
+
+unleashNode ::
+    IORef (Maybe C.ChainPoint) -> C.LocalNodeConnectInfo -> Net.Query.LeashID -> IO ()
+unleashNode leashRef conn leashId = do
+    mcp <- IORef.readIORef leashRef
+    case mcp of
+        Nothing -> pure ()
+        Just cp ->
+            void $
+                runLocalStateQueryExprWith leashRef conn leashId cp True sysStartQuery
 
 --------------------------------------------------------------------------------
 -- Utils

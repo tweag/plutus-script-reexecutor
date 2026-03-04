@@ -89,6 +89,8 @@ data ExecuteParams = ExecuteParams
 
 data LeashingRoutes route = LeashingRoutes
     { lrStatus :: route :- "status" :> Get '[JSON] (Maybe C.ChainPoint)
+    , lrUnleash :: route :- "unleash" :> Get '[JSON] ()
+    , lrLeash :: route :- "leash" :> Get '[JSON] ()
     }
     deriving (Generic)
 

@@ -26,6 +26,7 @@ import Control.Exception (throw)
 import Control.Monad (void, when)
 import Data.Foldable (forM_)
 import Data.Function ((&))
+import Data.IORef (IORef)
 import Data.Map qualified as Map
 import Ouroboros.Network.Protocol.ChainSync.Client (
     ClientStIdle (..),
@@ -261,13 +262,14 @@ consumeTransactions events cm cbMetrics ctx = do
         & Stream.fold Fold.drain
 
 mainLoopDirect ::
+    IORef (Maybe C.ChainPoint) ->
     StreamingMetrics ->
     ContextBuilderMetrics ->
     Events ->
     CM.ConfigMap ->
     [C.ChainPoint] ->
     IO ()
-mainLoopDirect metrics cbMetrics events cm@CM.ConfigMap{..} points = do
+mainLoopDirect leashRef metrics cbMetrics events cm@CM.ConfigMap{..} points = do
     streamBlocks metrics events cm points
         & Stream.fold (Fold.drainMapM consumeBlock)
   where
@@ -278,7 +280,7 @@ mainLoopDirect metrics cbMetrics events cm@CM.ConfigMap{..} points = do
         [C.Tx era] ->
         IO ()
     withAlonzoEra era bh previousChainPt txList = do
-        blockContext <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era txList
+        blockContext <- mkBlockContext leashRef cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era txList
         let blockContext1 =
                 blockContext
                     { ctxTransactions =
@@ -295,6 +297,7 @@ mainLoopDirect metrics cbMetrics events cm@CM.ConfigMap{..} points = do
                 Just era -> withAlonzoEra era bh previousChainPt txList
 
 mainLoopTracking ::
+    IORef (Maybe C.ChainPoint) ->
     StreamingMetrics ->
     ContextBuilderMetrics ->
     Events ->
@@ -302,7 +305,7 @@ mainLoopTracking ::
     Map.Map C.TxIn C.ScriptHash ->
     Stream IO (C.ChainPoint, Block) ->
     IO (Map.Map C.TxIn C.ScriptHash)
-mainLoopTracking metrics cbMetrics events cm@CM.ConfigMap{..} initUtxoMap blockStream = do
+mainLoopTracking leashRef metrics cbMetrics events cm@CM.ConfigMap{..} initUtxoMap blockStream = do
     blockStream
         & Stream.fold (Fold.foldlM' consumeBlock (pure initUtxoMap))
   where
@@ -333,7 +336,7 @@ mainLoopTracking metrics cbMetrics events cm@CM.ConfigMap{..} initUtxoMap blockS
         -- 2. These scripts have a non-empty intersection with the configured
         --    scripts
         when (not (null selectedTxs)) $ do
-            blockContext <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
+            blockContext <- mkBlockContext leashRef cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
             consumeTransactions events cm cbMetrics blockContext
         pure newUtxoMap
 
@@ -353,16 +356,21 @@ mainLoopTracking metrics cbMetrics events cm@CM.ConfigMap{..} initUtxoMap blockS
 -- NOTE: Think more about how we can reduce the bandwidth of the initial costly
 -- query.
 --
-mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
-mainLoop events cm@CM.ConfigMap{..} points = do
+mainLoop ::
+    IORef (Maybe C.ChainPoint) ->
+    Events ->
+    CM.ConfigMap ->
+    [C.ChainPoint] ->
+    IO ()
+mainLoop leashRef events cm@CM.ConfigMap{..} points = do
     metrics <- initialiseMetrics
     cbMetrics <- initialiseContextBuilderMetrics
     let confHashes = Map.keysSet cmScripts
     case cmRunningMode of
         CM.RMWithoutLocalState ->
-            mainLoopDirect metrics cbMetrics events cm points
+            mainLoopDirect leashRef metrics cbMetrics events cm points
         CM.RMEmptyInitialLocalState -> void $ do
-            mainLoopTracking metrics cbMetrics events cm Map.empty $
+            mainLoopTracking leashRef metrics cbMetrics events cm Map.empty $
                 streamBlocks metrics events cm points
         CM.RMSyncInitialLocalState -> do
             res <- Stream.uncons (streamBlocks metrics events cm points)
@@ -371,12 +379,13 @@ mainLoop events cm@CM.ConfigMap{..} points = do
                 Just ((previousChainPt, Block _ sbe _), blkStream) -> void $ do
                     initUtxoMap <-
                         getSpendProjectedUtxoMap
+                            leashRef
                             cmLocalNodeConn
                             cmLeashId
                             previousChainPt
                             sbe
                             confHashes
-                    mainLoopTracking metrics cbMetrics events cm initUtxoMap blkStream
+                    mainLoopTracking leashRef metrics cbMetrics events cm initUtxoMap blkStream
 
 --------------------------------------------------------------------------------
 -- Module metrics

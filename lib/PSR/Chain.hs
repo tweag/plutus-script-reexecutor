@@ -31,7 +31,10 @@ import Cardano.Ledger.Plutus (
     unPlutusV3Args,
  )
 import Control.Exception (Exception, throw)
+import Control.Monad (void, when)
 import Data.Functor.Identity (Identity (..))
+import Data.IORef (IORef)
+import Data.IORef qualified as IORef
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -111,17 +114,32 @@ sysStartQuery = do
         Left err -> throw $ QeUnsupportedNtcVersionError err
         Right val -> pure val
 
+runLocalStateQueryExprWith ::
+    IORef (Maybe C.ChainPoint) ->
+    C.LocalNodeConnectInfo ->
+    Net.Query.LeashID ->
+    C.ChainPoint ->
+    Bool ->
+    C.LocalStateQueryExpr C.BlockInMode C.ChainPoint C.QueryInMode () IO a ->
+    IO a
+runLocalStateQueryExprWith refLeashPoint conn leashId cp shouldRelease query = do
+    IORef.atomicModifyIORef refLeashPoint (const (Just cp, ()))
+    res <- C.executeLocalStateQueryExprLeashed conn leashId shouldRelease (Net.Query.SpecificPoint cp) query
+    when shouldRelease $
+        IORef.atomicModifyIORef refLeashPoint (const (Nothing, ()))
+    case res of
+        Left err -> throw $ QeAcquiringFailure err
+        Right val -> pure val
+
 runLocalStateQueryExpr ::
+    IORef (Maybe C.ChainPoint) ->
     C.LocalNodeConnectInfo ->
     Net.Query.LeashID ->
     C.ChainPoint ->
     C.LocalStateQueryExpr C.BlockInMode C.ChainPoint C.QueryInMode () IO a ->
     IO a
-runLocalStateQueryExpr conn leashId cp query = do
-    res <- C.executeLocalStateQueryExprLeashed conn leashId False (Net.Query.SpecificPoint cp) query
-    case res of
-        Left err -> throw $ QeAcquiringFailure err
-        Right val -> pure val
+runLocalStateQueryExpr refLeashPoint conn leashId cp query =
+    runLocalStateQueryExprWith refLeashPoint conn leashId cp False query
 
 --------------------------------------------------------------------------------
 -- Utils

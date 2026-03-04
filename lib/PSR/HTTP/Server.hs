@@ -7,6 +7,8 @@ module PSR.HTTP.Server (
 import Cardano.Api qualified as C
 import Control.Monad.IO.Class (liftIO)
 import Data.Default (def)
+import Data.IORef (IORef)
+import Data.IORef qualified as IORef
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -26,8 +28,8 @@ import Servant
 import Servant.QueryParam.Server.Record ()
 import Servant.Server.Generic (AsServer)
 
-server :: ConfigMap -> Maybe Storage -> Events -> Server ServerAPI
-server cm maybeStorage events = siteH
+server :: IORef (Maybe C.ChainPoint) -> ConfigMap -> Maybe Storage -> Events -> Server ServerAPI
+server leashRef cm maybeStorage events = siteH
   where
     siteH :: SiteRoutes AsServer
     siteH =
@@ -35,6 +37,7 @@ server cm maybeStorage events = siteH
             { events = eventsH
             , eventsWebSockets = eventsWSH
             , execute = executeH
+            , leashing = leashingH
             }
 
     eventsH :: EventRoutes AsServer
@@ -49,6 +52,12 @@ server cm maybeStorage events = siteH
     eventsHandler filterParams mName = case maybeStorage of
         Nothing -> pure []
         Just storage -> liftIO $ storage.getEvents (filtersWithName mName filterParams)
+
+    leashingH :: LeashingRoutes AsServer
+    leashingH =
+        LeashingRoutes
+            { lrStatus = liftIO $ IORef.readIORef leashRef
+            }
 
     executeH :: Text -> ExecuteParams -> Handler [Event]
     executeH nameOrHash ExecuteParams{..} = do
@@ -90,8 +99,8 @@ server cm maybeStorage events = siteH
     filtersWithName (Just name) filterParams =
         filterParams{_eventFilterParam_name_or_script_hash = Just name}
 
-run :: ConfigMap -> Maybe Storage -> Events -> Warp.Port -> IO ()
-run cm maybeStorage events port = do
+run :: IORef (Maybe C.ChainPoint) -> ConfigMap -> Maybe Storage -> Events -> Warp.Port -> IO ()
+run leashRef cm maybeStorage events port = do
     _ <- register ghcMetrics
-    let mainApp = serve siteApi (server cm maybeStorage events)
+    let mainApp = serve siteApi (server leashRef cm maybeStorage events)
     Warp.run port (prometheus def mainApp)

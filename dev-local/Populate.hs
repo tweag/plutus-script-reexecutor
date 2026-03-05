@@ -458,6 +458,7 @@ runSpend AppEnv{..} lockedUtxo = do
         [ opt "tx-in" faucetUtxo
         , opt "tx-in" lockedUtxo
         , opt "tx-in-script-file" validatorFilePath
+        , flg "tx-in-inline-datum-present"
         , opt "tx-in-redeemer-value" (10 :: Int)
         , opt "tx-in-collateral" faucetUtxo
         , opt "tx-out" [str|#{validatorAddress} + 2000000 + #{assetAmount} #{assetClass}|]
@@ -483,6 +484,7 @@ runBurn AppEnv{..} lockedUtxo = do
         [ opt "tx-in" faucetUtxo
         , opt "tx-in" lockedUtxo
         , opt "tx-in-script-file" validatorFilePath
+        , flg "tx-in-inline-datum-present"
         , opt "tx-in-redeemer-value" (10 :: Int)
         , opt "tx-in-collateral" faucetUtxo
         , opt "mint" [str|-#{assetAmount} #{assetClass}|]

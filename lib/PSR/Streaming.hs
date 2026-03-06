@@ -10,8 +10,6 @@ module PSR.Streaming (
 -- Imports
 --------------------------------------------------------------------------------
 
-import PSR.Events.Interface (EvalError (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), TraceLogs (..))
-
 import Cardano.Api qualified as C
 import Cardano.Api.Pretty (Pretty (pretty), docToText)
 import Cardano.Ledger.Binary (getVersion64)
@@ -23,7 +21,7 @@ import Cardano.Ledger.Plutus (
  )
 import Control.Concurrent (forkIO)
 import Control.Exception (throw)
-import Control.Monad (void, when)
+import Control.Monad (join, void, when)
 import Data.Foldable (forM_)
 import Data.Function ((&))
 import Data.Map qualified as Map
@@ -35,6 +33,7 @@ import Ouroboros.Network.Protocol.ChainSync.Client (
 import PSR.Chain
 import PSR.ConfigMap qualified as CM
 import PSR.ContextBuilder
+import PSR.Events.Interface (EvalError (..), Events (..), ExecutionContext (..), ExecutionEventPayload (..), ScriptInfo (..), TraceLogs (..))
 import PSR.Metrics (Counter, Gauge, Summary, getGauge, incCounter, incCounterBy, observeDuration, regCounter, regGauge, regSummary, setGauge)
 import PSR.Types
 import PlutusLedgerApi.Common (
@@ -160,20 +159,20 @@ traceChainSyncEvent events = \case
         events.addSelectionEvent header
     _ -> pure ()
 
-traceTransactionExecutionResult :: Events -> TransactionContext era -> IO ()
-traceTransactionExecutionResult events tc =
+traceTransactionExecutionResult :: CM.ConfigMap -> Events -> TransactionContext era -> IO ()
+traceTransactionExecutionResult CM.ConfigMap{cmTargetScriptNames} events tc =
     -- TODO: we need to use the script purpose to tell the difference between executions
     -- TODO: Nesting Eithers made this more difficult to read. We need to clean
     -- this up
     forM_ (Map.elems tc.ctxTransactionExecutionResult) $ \case
         Right elems ->
             forM_ elems $ \case
-                (sname, val) -> case val of
+                (shadowName, shadowHash, val) -> case val of
                     -- This is a script evaluation error.
                     Left (C.ScriptErrorEvaluationFailed (C.DebugPlutusFailure evalErr pwc exUnits logs)) ->
-                        addEvent sname pwc logs exUnits (Just evalErr)
+                        addEvent shadowName shadowHash pwc logs exUnits (Just evalErr)
                     Right (pwc, logs, exUnits) ->
-                        addEvent sname pwc logs exUnits Nothing
+                        addEvent shadowName shadowHash pwc logs exUnits Nothing
                     -- TODO: we might need to cover more errors, ex budget
                     _ -> pure ()
         -- NOTE: This is not a script evaluation error but a script
@@ -182,7 +181,8 @@ traceTransactionExecutionResult events tc =
         Left _ -> pure ()
   where
     addEvent
-        scriptName
+        shadowName
+        shadowHash
         PlutusWithContext
             { pwcArgs = args :: PlutusArgs l
             , pwcCostModel
@@ -194,7 +194,7 @@ traceTransactionExecutionResult events tc =
         exUnits
         evalError' = do
             let
-                scriptHash = C.ScriptHash pwcScriptHash
+                targetScriptHash = C.ScriptHash pwcScriptHash
                 ledgerLanguage =
                     case isLanguage @l of
                         SPlutusV1 -> PlutusV1
@@ -205,8 +205,16 @@ traceTransactionExecutionResult events tc =
                 context =
                     ExecutionContext
                         { transactionHash = C.getTxId $ C.getTxBody tc.ctxTransaction
-                        , scriptName = scriptName
-                        , scriptHash
+                        , targetScript =
+                            ScriptInfo
+                                { name = join $ Map.lookup targetScriptHash cmTargetScriptNames
+                                , hash = targetScriptHash
+                                }
+                        , shadowScript =
+                            ScriptInfo
+                                { name = shadowName
+                                , hash = shadowHash
+                                }
                         , ledgerLanguage
                         , majorProtocolVersion = MajorProtocolVersion (fromIntegral (getVersion64 pwcProtocolVersion))
                         , datum
@@ -268,7 +276,7 @@ mainLoop events cm@CM.ConfigMap{..} points = do
         & Stream.fold (Fold.foldlM' (consumeBlock metrics cbMetrics) (pure Nothing))
         & void
   where
-    confHashes = Map.keysSet cmScripts
+    confHashes = Map.keysSet cmShadowScripts
     consumeBlock metrics cbMetrics mUtxoMap (previousChainPt, Block bh sbe txList) = do
         let getUtxoMap =
                 case mUtxoMap of
@@ -281,7 +289,7 @@ mainLoop events cm@CM.ConfigMap{..} points = do
             consumeTransactions era selectedTxs = do
                 ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
                 streamTransactionContext cbMetrics cm ctx1
-                    & Stream.trace (traceTransactionExecutionResult events)
+                    & Stream.trace (traceTransactionExecutionResult cm events)
                     & Stream.fold Fold.drain
             withAlonzoEra era = do
                 prevUtxoMap <- getUtxoMap

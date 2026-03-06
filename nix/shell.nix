@@ -112,6 +112,7 @@ let
     pkgs.bash
     pkgs.git
     pkgs.which
+    pkgs.xxd
 
     pkgs.websocat
     pkgs.jq

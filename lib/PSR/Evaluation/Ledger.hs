@@ -164,17 +164,16 @@ evalTxExUnitsWithLogs ssi pp tx utxo epochInfo systemStart = Map.mapWithKey find
         scriptsToRun <-
             case Map.lookup (C.ScriptHash plutusScriptHash) ssi of
                 Nothing -> do
-                    -- NOTE: When there is no substitution script available, we
+                    -- NOTE: When there is no shadow script available, we
                     -- can choose to exit. This will simplify the function.
                     providedScript <-
                         note PeMissingScript $
                             lookupPlutusScript plutusScriptHash scriptsProvided
-                    pure [(Nothing, providedScript)]
+                    pure [(Nothing, C.ScriptHash plutusScriptHash, providedScript)]
                 Just vals ->
-                    pure . flip map vals $ \val ->
-                        case val of
-                            (sname, Conway.PlutusScript s) -> (sname, s)
-                            _ -> error "Conway.TimelockScript is not supported."
+                    pure . flip map vals $ \case
+                        (sname, shadowHash, Conway.PlutusScript s) -> (sname, shadowHash, s)
+                        _ -> error "Conway.TimelockScript is not supported."
         pure $ map (second (findAndCountWith purpHash rdmr)) scriptsToRun
 
     findAndCountWith (plutusPurpose, plutusScriptHash) (redeemerData, exUnits) plutusScript = do

@@ -55,20 +55,20 @@ data ScriptDetails = ScriptDetails
 
 $(deriveJSONRecord "sd" ''ScriptDetails)
 
--- | Details of each script
-data ScriptSubDetails = ScriptSubDetails
-    { sdScriptHash :: C.ScriptHash
-    , sdTargetScriptName :: Maybe Text
-    , sdSubstitutions :: [ScriptDetails]
+-- | Configuration of each script
+data ScriptConfiguration = ScriptConfiguration
+    { scHash :: C.ScriptHash
+    , scName :: Maybe Text
+    , scShadows :: [ScriptDetails]
     }
     deriving (Show, Eq)
 
-$(deriveJSONRecord "sd" ''ScriptSubDetails)
+$(deriveJSONRecord "sc" ''ScriptConfiguration)
 
 -- | Represents the config map file on disk
 data ConfigMapFile = ConfigMapFile
     { cmfStart :: Maybe C.ChainPoint
-    , cmfScripts :: [ScriptSubDetails]
+    , cmfScripts :: [ScriptConfiguration]
     }
     deriving (Show, Eq)
 
@@ -79,7 +79,8 @@ $(deriveJSONRecord "cmf" ''ConfigMapFile)
 -}
 data ConfigMap = ConfigMap
     { cmStart :: Maybe C.ChainPoint
-    , cmScripts :: Map C.ScriptHash [ResolvedScript]
+    , cmShadowScripts :: Map C.ScriptHash [ResolvedScript]
+    , cmTargetScriptNames :: Map C.ScriptHash (Maybe Text)
     , cmLocalNodeConn :: C.LocalNodeConnectInfo
     , cmLeashId :: LeashID
     }
@@ -87,7 +88,7 @@ data ConfigMap = ConfigMap
 -- | Information relating to a loaded script
 data ResolvedScript = ResolvedScript
     { rsName :: Maybe Text
-    , rsScriptHash :: Text
+    , rsScriptHash :: C.ScriptHash
     , rsScriptFileContent :: C.ScriptInAnyLang
     , rsScriptEvaluationParameters :: ScriptEvaluationParameters
     , rsScriptForEvaluation :: ScriptForEvaluation
@@ -122,9 +123,9 @@ resolveScript (scr :: C.ScriptInAnyLang) = do
     (ScriptEvaluationParameters lang protocol,)
         <$> withExceptT show (deserialiseScript lang protocol script)
 
-readSubstitutionList :: FilePath -> ScriptSubDetails -> ExceptT String IO (C.ScriptHash, [ResolvedScript])
-readSubstitutionList scriptYamlDir ScriptSubDetails{..} = do
-    (sdScriptHash,) <$> mapM (readScriptFile scriptYamlDir sdScriptHash) (zip [1 ..] sdSubstitutions)
+readShadowList :: FilePath -> ScriptConfiguration -> ExceptT String IO (C.ScriptHash, [ResolvedScript])
+readShadowList scriptYamlDir ScriptConfiguration{..} = do
+    (scHash,) <$> mapM (readScriptFile scriptYamlDir scHash) (zip [1 ..] scShadows)
 
 -- | Resolve a script, either from disk or inline definition
 readScriptFile :: FilePath -> C.ScriptHash -> (Int, ScriptDetails) -> ExceptT String IO ResolvedScript
@@ -139,7 +140,7 @@ readScriptFile scriptYamlDir scrutScriptHash (ix, ScriptDetails{..}) = do
             Text.concat
                 [ "["
                 , C.serialiseToRawBytesHexText scrutScriptHash
-                , "] at substitution ["
+                , "] at shadow ["
                 , Text.pack (show ix)
                 , "]"
                 ]
@@ -155,17 +156,17 @@ readScriptFile scriptYamlDir scrutScriptHash (ix, ScriptDetails{..}) = do
 
     let actualScriptHash =
             case rsScriptFileContent of
-                C.ScriptInAnyLang _ script ->
-                    C.serialiseToRawBytesHexText $ C.hashScript script
+                C.ScriptInAnyLang _ script -> C.hashScript script
+        actualScriptHashText = C.serialiseToRawBytesHexText actualScriptHash
 
-    when (sdHash /= actualScriptHash) $
+    when (sdHash /= actualScriptHashText) $
         fail $
             Text.unpack $
                 Text.concat
                     [ "Unable to verify script file at "
                     , errIdentifier
                     , ". Actual hash is: "
-                    , actualScriptHash
+                    , actualScriptHashText
                     , ", but got "
                     , sdHash
                     ]
@@ -175,7 +176,7 @@ readScriptFile scriptYamlDir scrutScriptHash (ix, ScriptDetails{..}) = do
     pure
         ResolvedScript
             { rsName = sdName
-            , rsScriptHash = sdHash
+            , rsScriptHash = actualScriptHash
             , rsScriptFileContent
             , rsScriptEvaluationParameters
             , rsScriptForEvaluation
@@ -186,20 +187,23 @@ readConfigMap :: FilePath -> C.NetworkId -> C.SocketPath -> LeashID -> IO (Eithe
 readConfigMap scriptYaml networkId socketPath leashId = runExceptT $ do
     ConfigMapFile{..} <- withExceptT show $ ExceptT $ decodeFileEither scriptYaml
     let scriptYamlDir = dropFileName scriptYaml
-    -- NOTE: The list of substitutions here can be empty, it just signals that
+    -- NOTE: The list of shadow here can be empty, it just signals that
     -- the user is interested in that script and wants to record the
     -- observations.
     --
     -- TODO: Think about what should the behavior look like if the list of
-    -- substitutions is empty.
+    -- shadows is empty.
     -- One possible behavior: Evaluate the transaction normally in this case,
     -- and provide the outputs we compute from the real script (like ExUnits).
     --
-    kvPairs <- mapM (readSubstitutionList scriptYamlDir) cmfScripts
+    cmShadowScripts <- Map.fromList <$> mapM (readShadowList scriptYamlDir) cmfScripts
+    let cmTargetScriptNames = Map.fromList $ map (\ScriptConfiguration{..} -> (scHash, scName)) cmfScripts
+
     pure
         ConfigMap
             { cmStart = cmfStart
-            , cmScripts = Map.fromList kvPairs
+            , cmShadowScripts
+            , cmTargetScriptNames
             , cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
             , cmLeashId = leashId
             }

@@ -117,8 +117,8 @@ runLocalStateQueryExpr ::
     C.ChainPoint ->
     C.LocalStateQueryExpr C.BlockInMode C.ChainPoint C.QueryInMode () IO a ->
     IO a
-runLocalStateQueryExpr conn leashId cp query = do
-    res <- C.executeLocalStateQueryExprLeashed conn leashId False (Net.Query.SpecificPoint cp) query
+runLocalStateQueryExpr conn _leashId cp query = do
+    res <- C.executeLocalStateQueryExpr conn (Net.Query.SpecificPoint cp) query
     case res of
         Left err -> throw $ QeAcquiringFailure err
         Right val -> pure val

@@ -26,6 +26,7 @@ import Control.Exception (throw)
 import Control.Monad (void, when)
 import Data.Foldable (forM_)
 import Data.Function ((&))
+import Data.IORef (IORef)
 import Data.Map qualified as Map
 import Ouroboros.Network.Protocol.ChainSync.Client (
     ClientStIdle (..),
@@ -260,8 +261,13 @@ streamTransactionContext cbMetrics cm ctx1@BlockContext{..} =
 -- NOTE: Think more about how we can reduce the bandwidth of the initial costly
 -- query.
 --
-mainLoop :: Events -> CM.ConfigMap -> [C.ChainPoint] -> IO ()
-mainLoop events cm@CM.ConfigMap{..} points = do
+mainLoop ::
+    IORef (Maybe C.ChainPoint) ->
+    Events ->
+    CM.ConfigMap ->
+    [C.ChainPoint] ->
+    IO ()
+mainLoop leashRef events cm@CM.ConfigMap{..} points = do
     metrics <- initialiseMetrics
     cbMetrics <- initialiseContextBuilderMetrics
     streamBlocks metrics events cm points
@@ -273,13 +279,13 @@ mainLoop events cm@CM.ConfigMap{..} points = do
         let getUtxoMap =
                 case mUtxoMap of
                     Nothing ->
-                        getSpendProjectedUtxoMap cmLocalNodeConn cmLeashId previousChainPt sbe confHashes
+                        getSpendProjectedUtxoMap leashRef cmLocalNodeConn cmLeashId previousChainPt sbe confHashes
                     Just utxoMap -> pure utxoMap
             -- NOTE: We only consume a specific set of transactions and not all
             -- the transactions in a block. We use the internal UTxO map to
             -- decide which transaction meet the criteria.
             consumeTransactions era selectedTxs = do
-                ctx1 <- mkBlockContext cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
+                ctx1 <- mkBlockContext leashRef cbMetrics bh cmLocalNodeConn cmLeashId previousChainPt era selectedTxs
                 streamTransactionContext cbMetrics cm ctx1
                     & Stream.trace (traceTransactionExecutionResult events)
                     & Stream.fold Fold.drain

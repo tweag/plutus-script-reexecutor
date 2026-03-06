@@ -5,6 +5,7 @@
 import Cardano.Api qualified as C
 import Control.Concurrent.Async qualified as Async
 import Data.Foldable (for_)
+import Data.IORef qualified as IORef
 import Options
 import Options.Applicative (customExecParser, helpLongEquals, prefs, showHelpOnEmpty)
 import PSR.ConfigMap qualified as CM
@@ -33,6 +34,7 @@ main = do
 
 run :: Options -> IO ()
 run Options{..} = do
+    leashRef <- IORef.newIORef Nothing
     config@CM.ConfigMap{..} <-
         CM.readConfigMap scriptYaml networkId socketPath leashId >>= either error pure
 
@@ -53,8 +55,8 @@ run Options{..} = do
 
     withMaybeStorage $ \maybeStorage ->
         Events.withEvents maybeStorage $ \events -> do
-            let runMainLoop = Streaming.mainLoop events config points
-            let runWebServer = HTTP.run config maybeStorage events httpServerPort
+            let runMainLoop = Streaming.mainLoop leashRef events config points
+            let runWebServer = HTTP.run leashRef config maybeStorage events httpServerPort
             let runFileLogger = for_ logsPath (EventsFileLogger.run events)
             Async.mapConcurrently_ id [runWebServer, runFileLogger, runMainLoop]
 

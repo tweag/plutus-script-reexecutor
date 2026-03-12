@@ -140,6 +140,13 @@ tracingYamlContents scriptsDirName = do
         hash: "#{validatorDebugPolicyId}"
         source:
           file_path: "#{scriptsDirName}/validator-debug.plutus"
+      - name: "Always failing script"
+        hash: "793f8c8cffba081b2a56462fc219cc8fe652d6a338b62c7b134876e7"
+        source:
+          inline:
+              type: "PlutusScriptV2"
+              description: "Always failing script"
+              cborHex: "4e4d01000033222220051200120011"
 |]
 
 escrowYamlContents :: IO String

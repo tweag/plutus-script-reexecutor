@@ -90,11 +90,14 @@ scripts:
         ##
         # Tip: Leave this as an empty string and let plutus-script-reexecutor
         # error out with the expected script hash.
-        hash: "6bfbd8fc6567153cbaacdcd0ee9fff9e69ba2a0eb62c129b303ade19"
+        hash: "793f8c8cffba081b2a56462fc219cc8fe652d6a338b62c7b134876e7"
         source:
           # The source of the substitution script. This can either be a
           # "file_path" or a "cbor_hex".
-          cbor_hex: "4e4d01000033222220051200120011"
+          inline:
+              type: "PlutusScriptV2"
+              description: "Always failing script"
+              cborHex: "4e4d01000033222220051200120011"
           # file_path: "local-config/policy-debug.plutus"
 
 |]

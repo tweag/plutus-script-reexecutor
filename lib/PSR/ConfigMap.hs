@@ -41,7 +41,7 @@ import System.FilePath (dropFileName, (</>))
  or another file on disk.
 -}
 data ScriptSource
-    = SCborHex C.TextEnvelope
+    = SInline C.TextEnvelope
     | SFilePath FilePath
     deriving (Show, Eq)
 
@@ -161,8 +161,8 @@ readScriptFile scriptYamlDir scrutScriptHash (ix, ScriptDetails{..}) = do
             relativePath <- liftIO $ makeRelativeToCurrentDirectory path
             liftIO $ putStrLn $ "Reading script from file: " <> relativePath
             withExceptT show $ ExceptT $ C.readFileTextEnvelopeAnyOf scriptTypes (C.File relativePath)
-        SCborHex content ->
-            withExceptT show $ except $ C.deserialiseFromTextEnvelopeAnyOf scriptTypes content
+        SInline content -> do
+            withExceptT show . except $ C.deserialiseFromTextEnvelopeAnyOf scriptTypes content
 
     let actualScriptHash =
             case rsScriptFileContent of

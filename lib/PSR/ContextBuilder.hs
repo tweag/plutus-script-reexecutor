@@ -33,7 +33,7 @@ import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Exts qualified as List (IsList (..))
-import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashID)
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashId)
 import PSR.Chain
 import PSR.ConfigMap (ConfigMap (..), ResolvedScript (..))
 import PSR.Evaluation.Api (evaluateTransactionExecutionUnitsShelley)
@@ -97,7 +97,7 @@ mkBlockContext ::
     ContextBuilderMetrics ->
     C.BlockHeader ->
     C.LocalNodeConnectInfo ->
-    LeashID ->
+    LeashId ->
     C.ChainPoint ->
     C.AlonzoEraOnwards era ->
     [C.Tx era] ->
@@ -117,7 +117,7 @@ mkBlockContext metrics bh conn leashId prevCp era txs = do
 -- NOTE: This is a costly function, but we only run it once.
 getSpendProjectedUtxoMap ::
     C.LocalNodeConnectInfo ->
-    LeashID ->
+    LeashId ->
     C.ChainPoint ->
     C.ShelleyBasedEra era ->
     Set C.ScriptHash ->

@@ -20,7 +20,7 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Yaml (decodeFileEither)
-import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashID)
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashId)
 import PSR.Chain (mkLocalNodeConnectInfo)
 import PSR.Types (deriveJSONRecord, deriveJSONSimpleSum)
 import PlutusLedgerApi.Common (
@@ -91,7 +91,7 @@ data ConfigMap = ConfigMap
     { cmStart :: Maybe C.ChainPoint
     , cmScripts :: Map C.ScriptHash [ResolvedScript]
     , cmLocalNodeConn :: C.LocalNodeConnectInfo
-    , cmLeashId :: LeashID
+    , cmLeashId :: LeashId
     , cmRunningMode :: RunningMode
     }
 
@@ -193,7 +193,7 @@ readScriptFile scriptYamlDir scrutScriptHash (ix, ScriptDetails{..}) = do
             }
 
 -- | Parse the config from a given Yaml file on disk
-readConfigMap :: FilePath -> C.NetworkId -> C.SocketPath -> LeashID -> IO (Either String ConfigMap)
+readConfigMap :: FilePath -> C.NetworkId -> C.SocketPath -> LeashId -> IO (Either String ConfigMap)
 readConfigMap scriptYaml networkId socketPath leashId = runExceptT $ do
     ConfigMapFile{..} <- withExceptT show $ ExceptT $ decodeFileEither scriptYaml
     let scriptYamlDir = dropFileName scriptYaml

@@ -4,7 +4,7 @@ import Cardano.Api
 import Data.Foldable (fold)
 import Network.Wai.Handler.Warp (Port)
 import Options.Applicative
-import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashID (..))
+import Ouroboros.Network.Protocol.LocalStateQuery.Type (LeashId (..))
 import System.Environment.Blank (getEnvDefault)
 import Text.Read (readMaybe)
 
@@ -25,7 +25,7 @@ data Options = Options
     , httpServerPort :: Port
     , logsPath :: Maybe FilePath
     , sqlitePath :: Maybe FilePath
-    , leashId :: LeashID
+    , leashId :: LeashId
     }
     deriving (Show, Eq)
 
@@ -99,7 +99,7 @@ mkParseOptions = do
                 <> help "Path to sqlite database"
             )
     optLeashId =
-        LeashID
+        LeashId
             <$> option
                 auto
                 ( long "leash-id"

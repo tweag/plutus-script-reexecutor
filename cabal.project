@@ -28,8 +28,8 @@ constraints:
 source-repository-package
     type: git
     location: https://github.com/tweag/ouroboros-network
-    tag: 461bbd3f6a27bc282d8a2b7c54e9ef929f30efb0
-    --sha256: sha256-lEw68KGx16CkBktEeS4xyth6zh9doLewQqxHAiUrxcQ=
+    tag: 932ab7740673f5560b3d382e9024cb247586eb2a
+    --sha256: sha256-Bh0QU0XzHO+zgGQ7mUyIl0rC/2rOznU/ea0XOlXW2NU=
     subdir:
       ouroboros-network
       ouroboros-network-protocols
@@ -39,8 +39,8 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/tweag/ouroboros-consensus
-    tag: 41798759677482cd0ff46354ef44fa4e20640134
-    --sha256: sha256-0iWWFuVAe2aKfGbjSW/WNSJwdHyixf326fwFIGOOcJI=
+    tag: 3a8f660f6cc0b25e798b9e2b47b3b6675bfa4169
+    --sha256: sha256-80dy1XW2/4Dh6PclQGmZBaLDwcnzfOmnq9+B/Ng84lY=
     subdir:
       ouroboros-consensus
       ouroboros-consensus-cardano
@@ -50,7 +50,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/tweag/cardano-api
-    tag: e18961dffc32872d4293e06dddcf376cd1784b65
-    --sha256: sha256-OhA7E8Jl04eDybfpz0Ks+jH7X4yDUI4O3mY2lMj6eHE= 
+    tag: 19e8ce17e42ed0b77a8f55d4086d4319b2eb1f7a
+    --sha256: sha256-ixo+JhDXT5hse/y1YrabTYz9f16Pge9JvYHRZnTItxM=
     subdir:
       cardano-api

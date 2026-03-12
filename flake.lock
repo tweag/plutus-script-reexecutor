@@ -248,17 +248,17 @@
         "utils": "utils"
       },
       "locked": {
-        "lastModified": 1771838366,
-        "narHash": "sha256-7D3ic6T5LRkbtIZFMhWM9OzjKKB3NcKnnmpha4reuwM=",
+        "lastModified": 1774006627,
+        "narHash": "sha256-IlR/exKFj5MsLIjKVaiTF8JCVIxZFjo5EDYGTEC28ug=",
         "owner": "tweag",
         "repo": "cardano-node",
-        "rev": "fd69ca5b5b34c576d1a5375e8f1f13902ce5d822",
+        "rev": "3573ea1950e088b6ab251b1cd67287d412ba083c",
         "type": "github"
       },
       "original": {
         "owner": "tweag",
         "repo": "cardano-node",
-        "rev": "fd69ca5b5b34c576d1a5375e8f1f13902ce5d822",
+        "rev": "3573ea1950e088b6ab251b1cd67287d412ba083c",
         "type": "github"
       }
     },

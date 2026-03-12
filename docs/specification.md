@@ -362,7 +362,7 @@ https://ouroboros-consensus.cardano.intersectmbo.org/docs/references/miscellaneo
 
 We consider the leashing implementation utilising the existing LoE mechanism.
 
-1. We introduce a `LeashingState blk = Map LeashID (AnchoredFragment (HeaderWithTime blk))` structure to keep the leashing fragments associated with each leashing client.
+1. We introduce a `LeashingState blk = Map LeashId (AnchoredFragment (HeaderWithTime blk))` structure to keep the leashing fragments associated with each leashing client.
 2. We update the `LocalStateQuery` server to interact with that state:
     - If a new client connects to the server with `leashId`, the server will put the `leashId` together with the client's leashing fragment into the leashing state;
     - The leashing fragment is calculated using the current chain of the node and the `Target (Point Block)` provided by user. It's either a `SpecificPoint pt`, `ImmutableTip` or `VolatileTip`.

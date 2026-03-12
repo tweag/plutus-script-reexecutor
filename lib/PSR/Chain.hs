@@ -113,7 +113,7 @@ sysStartQuery = do
 
 runLocalStateQueryExpr ::
     C.LocalNodeConnectInfo ->
-    Net.Query.LeashID ->
+    Net.Query.LeashId ->
     C.ChainPoint ->
     C.LocalStateQueryExpr C.BlockInMode C.ChainPoint C.QueryInMode () IO a ->
     IO a

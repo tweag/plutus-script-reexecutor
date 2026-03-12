@@ -27,6 +27,7 @@ import Data.Bifunctor (Bifunctor (second))
 import Data.Foldable (foldl', toList)
 import Data.Function ((&))
 import Data.Functor.Identity (Identity (..))
+import Data.IORef (IORef)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
@@ -94,6 +95,7 @@ data BlockContext era where
         BlockContext era
 
 mkBlockContext ::
+    IORef (Maybe C.ChainPoint) ->
     ContextBuilderMetrics ->
     C.BlockHeader ->
     C.LocalNodeConnectInfo ->
@@ -102,7 +104,7 @@ mkBlockContext ::
     C.AlonzoEraOnwards era ->
     [C.Tx era] ->
     IO (BlockContext era)
-mkBlockContext metrics bh conn leashId prevCp era txs = do
+mkBlockContext leashRef metrics bh conn leashId prevCp era txs = do
     let sbe = C.convert era
         query =
             BlockContext bh prevCp era txs
@@ -112,18 +114,19 @@ mkBlockContext metrics bh conn leashId prevCp era txs = do
                 <*> sysStartQuery
     -- NOTE: We can catch CostModelsQueryException and choose to retry or skip.
     observeDuration metrics.mkBlockContext_query $
-        runLocalStateQueryExpr conn leashId prevCp query
+        runLocalStateQueryExpr leashRef conn leashId prevCp query
 
 -- NOTE: This is a costly function, but we only run it once.
 getSpendProjectedUtxoMap ::
+    IORef (Maybe C.ChainPoint) ->
     C.LocalNodeConnectInfo ->
     LeashID ->
     C.ChainPoint ->
     C.ShelleyBasedEra era ->
     Set C.ScriptHash ->
     IO (Map C.TxIn C.ScriptHash)
-getSpendProjectedUtxoMap conn leashId cp sbe confHashes = do
-    C.UTxO umap <- runLocalStateQueryExpr conn leashId cp (utxoWholeQuery sbe)
+getSpendProjectedUtxoMap leashRef conn leashId cp sbe confHashes = do
+    C.UTxO umap <- runLocalStateQueryExpr leashRef conn leashId cp (utxoWholeQuery sbe)
     pure $ Map.filter (flip Set.member confHashes) $ Map.mapMaybe getTxOutScriptAddr umap
 
 --------------------------------------------------------------------------------

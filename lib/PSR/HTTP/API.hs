@@ -4,6 +4,7 @@
 module PSR.HTTP.API (
     ServerAPI,
     SiteRoutes (..),
+    LeashingRoutes (..),
     EventRoutes (..),
     EventsWebSockets (..),
     Event (..),
@@ -12,6 +13,7 @@ module PSR.HTTP.API (
 ) where
 
 import Cardano.Api (BlockHeader (..))
+import Cardano.Api qualified as C
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -85,12 +87,21 @@ data ExecuteParams = ExecuteParams
     }
     deriving (Generic)
 
+data LeashingRoutes route = LeashingRoutes
+    { lrStatus :: route :- "status" :> Get '[JSON] (Maybe C.ChainPoint)
+    , lrUnleash :: route :- "unleash" :> Get '[JSON] ()
+    , lrLeash :: route :- "leash" :> Get '[JSON] ()
+    }
+    deriving (Generic)
+
 data SiteRoutes route = SiteRoutes
     { events ::
         route :- "events" :> NamedRoutes EventRoutes
     , eventsWebSockets ::
         route :- "events-ws" :> NamedRoutes EventsWebSockets
     , execute :: route :- "execute" :> Capture "name_or_script_hash" Text :> RecordParam DropPrefixExp ExecuteParams :> Get '[JSON] [Event]
+    , leashing ::
+        route :- "leashing" :> NamedRoutes LeashingRoutes
     }
     deriving (Generic)
 

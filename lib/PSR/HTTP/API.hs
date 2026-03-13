@@ -65,7 +65,7 @@ instance FromHttpApiData EventType where
     parseQueryParam = \case
         "execution" -> pure Execution
         "selection" -> pure Selection
-        "cancellation" -> pure Cancellation
+        "rollback" -> pure Rollback
         _ -> Left "Unknown event type"
 
 type EventFilterParams' = RecordParam DropPrefixExp EventFilterParams

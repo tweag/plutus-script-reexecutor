@@ -1,7 +1,8 @@
 CREATE TABLE IF NOT EXISTS block (
   hash BLOB PRIMARY KEY,
-  block_no UNSIGNED INTEGER NOT NULL,
-  slot_no UNSIGNED INTEGER NOT NULL
+  block_no UNSIGNED INTEGER,
+  slot_no UNSIGNED INTEGER NOT NULL,
+  status TEXT CHECK(status IN ('unknown', 'cancelled', 'committed'))
 ) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS execution_context (
@@ -18,7 +19,7 @@ CREATE TABLE IF NOT EXISTS execution_context (
   shadow_script_hash BLOB NOT NULL,
   shadow_script_name TEXT,
 
-  ledger_language SMALLINT NOT NULL, 
+  ledger_language SMALLINT NOT NULL,
   major_protocol_version SMALLINT NOT NULL,
   datum BLOB,
   redeemer BLOB,
@@ -54,7 +55,6 @@ CREATE INDEX IF NOT EXISTS idx_execution_event_created_at ON execution_event(cre
 CREATE TABLE IF NOT EXISTS cancellation_event (
   event_id INTEGER PRIMARY KEY,
   block_hash BLOB NOT NULL REFERENCES block (hash),
-  target_script_hash BLOB NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_cancellation_event_block_hash ON cancellation_event(block_hash);

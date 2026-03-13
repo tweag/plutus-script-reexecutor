@@ -2,7 +2,9 @@ module PSR.Storage.SQLite (withSqliteStorage) where
 
 import Cardano.Api (
     BlockHeader (..),
-    ScriptHash (..),
+    BlockNo,
+    Hash,
+    SlotNo,
  )
 import Cardano.Ledger.Binary (mkVersion64)
 import Cardano.Ledger.Binary qualified as L
@@ -17,6 +19,7 @@ import PSR.Storage.SQLite.GetEvents qualified as GetEvents
 import PSR.Storage.SQLite.Instances ()
 import PSR.Storage.SQLite.Metrics (SqliteMetrics (..), initialiseMetrics)
 import PSR.Storage.SQLite.Utils
+import PSR.Types (BlockStatus (..))
 import PlutusLedgerApi.Common (MajorProtocolVersion (..))
 
 withSqliteStorage :: FilePath -> (Storage -> IO ()) -> IO ()
@@ -33,15 +36,48 @@ mkStorage metrics pool = do
   where
     getEvents = GetEvents.getEvents metrics.getEvents_select pool
 
+    -- NOTE: The block may not always exist in our database. And it may not be
+    -- possible to get the proper BlockHeader on a rollback event.
+    createBlockIfNotExistsUtil ::
+        Connection -> SlotNo -> Hash BlockHeader -> Maybe BlockNo -> IO ()
+    createBlockIfNotExistsUtil conn slotNo hash mBlockNo = do
+        let colsKnown =
+                [ col "slot_no" slotNo
+                , col "hash" hash
+                , col "status" BSUnknown
+                ]
+            cols =
+                case mBlockNo of
+                    Nothing -> colsKnown
+                    Just blockNo -> col "block_no" blockNo : colsKnown
+        sqlInsertLax metrics.createBlockIfNotExists_insert conn "block" cols
+
+    createPartialBlockIfNotExists ::
+        Connection -> SlotNo -> Hash BlockHeader -> IO ()
+    createPartialBlockIfNotExists conn slotNo hash =
+        createBlockIfNotExistsUtil conn slotNo hash Nothing
+
     createBlockIfNotExists :: Connection -> BlockHeader -> IO ()
-    createBlockIfNotExists conn (BlockHeader slotNo hash blockNo) = do
-        sqlInsertLax
-            metrics.createBlockIfNotExists_insert
-            conn
-            "block"
-            [ col "block_no" blockNo
-            , col "slot_no" slotNo
-            , col "hash" hash
+    createBlockIfNotExists conn (BlockHeader slotNo hash blockNo) =
+        createBlockIfNotExistsUtil conn slotNo hash (Just blockNo)
+
+    -- TODO: Update the metric
+    commitBlock :: Connection -> BlockNo -> IO ()
+    commitBlock conn blockNo = do
+        let q = "UPDATE block SET status = :set_status WHERE block_no = :block_no AND status = :prev_status;"
+        executeNamed metrics.createBlockIfNotExists_insert conn q $
+            [ ":set_status" := BSCommitted
+            , ":prev_status" := BSUnknown
+            , ":block_no" := blockNo
+            ]
+
+    -- TODO: Update the metric
+    cancelBlocksAfterSlot :: Connection -> SlotNo -> IO ()
+    cancelBlocksAfterSlot conn slotNo = do
+        let q = "UPDATE block SET status = :set_status WHERE slot_no > :slot_no;"
+        executeNamed metrics.createBlockIfNotExists_insert conn q $
+            [ ":set_status" := BSCancelled
+            , ":slot_no" := slotNo
             ]
 
     getOrCreateCostModelParamsId :: Connection -> MajorProtocolVersion -> CostModel -> IO Integer
@@ -118,22 +154,22 @@ mkStorage metrics pool = do
                     -- TODO: handle the error properly
                     error "Failed to return execution context id"
 
-    addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
-    addCancellationEvent blockHeader@(BlockHeader _ hash _) scriptHash =
+    addRollbackEvent :: SlotNo -> Hash BlockHeader -> IO ()
+    addRollbackEvent slotNo hash =
         withResource pool $ \conn -> withTransaction conn $ do
-            void $ createBlockIfNotExists conn blockHeader
+            createPartialBlockIfNotExists conn slotNo hash
             let params =
                     [ col "block_hash" hash
-                    , col "target_script_hash" scriptHash
                     ]
             sqlInsert
-                metrics.addCancellationEvent_insert
+                metrics.addRollbackEvent_insert
                 conn
                 "cancellation_event"
                 params
+            cancelBlocksAfterSlot conn slotNo
 
     addSelectionEvent :: BlockHeader -> IO ()
-    addSelectionEvent blockHeader@(BlockHeader _ hash _) =
+    addSelectionEvent blockHeader@(BlockHeader _ hash blockNo) =
         withResource pool $ \conn -> withTransaction conn $ do
             void $ createBlockIfNotExists conn blockHeader
             let params = [col "block_hash" hash]
@@ -142,6 +178,9 @@ mkStorage metrics pool = do
                 conn
                 "selection_event"
                 params
+            -- TODO: Get k from global config
+            let k = 2080
+            commitBlock conn (blockNo - k)
 
     getExecutionContexts :: [FilterBy] -> IO [(BlockHeader, ExecutionContextId, ExecutionContext)]
     getExecutionContexts filters =

@@ -4,6 +4,7 @@ module PSR.Types (
     ChainSyncEvent (..),
     ChainSyncEventException (..),
     Block (..),
+    BlockStatus (..),
     ScriptSubtitutionInfo,
     TransactionExecutionResult,
     RedeemerReportWithLogs,
@@ -70,6 +71,11 @@ deriveJSONSimpleSum constPrefix =
 --------------------------------------------------------------------------------
 -- Types
 --------------------------------------------------------------------------------
+
+data BlockStatus
+    = BSUnknown
+    | BSCancelled
+    | BSCommitted
 
 data ChainSyncEvent
     = RollForward C.BlockInMode C.ChainTip

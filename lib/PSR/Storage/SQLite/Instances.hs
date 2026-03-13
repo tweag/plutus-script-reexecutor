@@ -30,11 +30,24 @@ import Database.SQLite.Simple.FromRow
 import Database.SQLite.Simple.ToField
 import GHC.Generics (Generic)
 import PSR.Events.Interface
+import PSR.Types (BlockStatus (..))
 import PlutusLedgerApi.Common (Data (..), MajorProtocolVersion (..), PlutusLedgerLanguage (..))
 
 deriving instance Generic BlockHeader
-deriving instance Show BlockHeader
 deriving instance FromRow BlockHeader
+
+instance ToField BlockStatus where
+    toField BSUnknown = toField ("unknown" :: Text)
+    toField BSCancelled = toField ("cancelled" :: Text)
+    toField BSCommitted = toField ("committed" :: Text)
+
+instance FromField BlockStatus where
+    fromField f = do
+        fromField f >>= \case
+            ("unknown" :: Text) -> pure BSUnknown
+            "cancelled" -> pure BSCancelled
+            "committed" -> pure BSCommitted
+            _ -> returnError ConversionFailed f "Failed to parse event type"
 
 instance ToField PlutusLedgerLanguage where
     toField = \case
@@ -98,13 +111,13 @@ instance FromField TxId where
 instance ToField EventType where
     toField Execution = toField ("execution" :: Text)
     toField Selection = toField ("selection" :: Text)
-    toField Cancellation = toField ("cancellation" :: Text)
+    toField Rollback = toField ("rollback" :: Text)
 
 instance FromField EventType where
     fromField f = do
         fromField f >>= \case
             ("execution" :: Text) -> pure Execution
-            "cancellation" -> pure Cancellation
+            "rollback" -> pure Rollback
             "selection" -> pure Selection
             _ -> returnError ConversionFailed f "Failed to parse event type"
 

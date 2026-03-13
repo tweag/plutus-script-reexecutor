@@ -5,7 +5,6 @@ module PSR.Events.Interface where
 
 import Cardano.Api (
     BlockHeader,
-    ScriptHash,
     TxId,
  )
 import Cardano.Api qualified as C
@@ -20,18 +19,19 @@ import PlutusLedgerApi.Common (Data, MajorProtocolVersion, PlutusLedgerLanguage)
 data EventType
     = Execution
     | Selection
-    | Cancellation
+    | Rollback
     deriving (Eq, Show, Generic)
 
 data EventPayload
-    = ExecutionPayload ExecutionEventPayload
-    | CancellationPayload ScriptHash
-    | SelectionPayload
+    = ExecutionPayload C.BlockNo ExecutionEventPayload
+    | RollbackPayload
+    | SelectionPayload C.BlockNo
     deriving (Generic)
 
 data Event = Event
     { eventType :: EventType
-    , blockHeader :: BlockHeader
+    , blockHash :: C.Hash BlockHeader
+    , slotNo :: C.SlotNo
     , createdAt :: UTCTime
     , payload :: EventPayload
     }
@@ -87,7 +87,7 @@ data EventFilterParams = EventFilterParams
 data Events = Events
     { addExecutionEvent :: BlockHeader -> ExecutionContextId -> ExecutionEventPayload -> IO Event
     , addExecutionContext :: BlockHeader -> ExecutionContext -> IO ExecutionContextId
-    , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
+    , addRollbackEvent :: C.SlotNo -> C.Hash BlockHeader -> IO ()
     , addSelectionEvent :: BlockHeader -> IO ()
     , getEventsChannel :: TChan Event
     }
@@ -127,14 +127,14 @@ eventMatchesFilter
         check :: (a -> Bool) -> Maybe a -> Bool
         check = maybe True
 
-        C.BlockHeader (fromIntegral . C.unSlotNo -> slotNo) _hash _blockno = event.blockHeader
+        slotNo = fromIntegral . C.unSlotNo $ event.slotNo
 
         (mShadowScriptName, mShadowScriptHash) = case event.payload of
-            ExecutionPayload eep -> (eep.context.shadowScript.name, Just $ C.textShow eep.context.shadowScript.hash)
-            CancellationPayload{} -> (Nothing, Nothing)
-            SelectionPayload -> (Nothing, Nothing)
+            ExecutionPayload _ eep -> (eep.context.shadowScript.name, Just $ C.textShow eep.context.shadowScript.hash)
+            RollbackPayload{} -> (Nothing, Nothing)
+            SelectionPayload{} -> (Nothing, Nothing)
 
         (mTargetScriptName, mTargetScriptHash) = case event.payload of
-            ExecutionPayload eep -> (eep.context.targetScript.name, Just $ C.textShow eep.context.targetScript.hash)
-            CancellationPayload hash -> (Nothing, Just $ C.textShow hash) -- TODO: we can lookup the the script name from the configmap
-            SelectionPayload -> (Nothing, Nothing)
+            ExecutionPayload _ eep -> (eep.context.targetScript.name, Just $ C.textShow eep.context.targetScript.hash)
+            RollbackPayload{} -> (Nothing, Nothing)
+            SelectionPayload{} -> (Nothing, Nothing)

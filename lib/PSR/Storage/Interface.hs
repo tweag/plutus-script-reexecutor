@@ -5,7 +5,8 @@ module PSR.Storage.Interface (
 
 import Cardano.Api (
     BlockHeader,
-    ScriptHash,
+    Hash,
+    SlotNo,
  )
 import Cardano.Ledger.Plutus (ExUnits)
 import Data.Text (Text)
@@ -23,7 +24,7 @@ data FilterBy = ByNameOrHash Text | ByTxId Text | ByContextId Integer
 data Storage = Storage
     { addExecutionEvent :: ExecutionContextId -> TraceLogs -> Maybe EvalError -> ExUnits -> IO ()
     , addExecutionContext :: BlockHeader -> ExecutionContext -> IO ExecutionContextId
-    , addCancellationEvent :: BlockHeader -> ScriptHash -> IO ()
+    , addRollbackEvent :: SlotNo -> Hash BlockHeader -> IO ()
     , addSelectionEvent :: BlockHeader -> IO ()
     , getEvents :: EventFilterParams -> IO [Event]
     , -- Returns the recent ExecutionContext that contains the provided name or script hash

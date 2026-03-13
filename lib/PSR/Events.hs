@@ -1,5 +1,6 @@
 module PSR.Events where
 
+import Cardano.Api qualified as C
 import Control.Concurrent.STM.TChan (newBroadcastTChanIO, writeTChan)
 import Control.Monad.STM qualified as STM
 import Data.Foldable (for_)
@@ -15,30 +16,32 @@ withEvents maybeStorage act = do
         getEventsChannel = eventsChannel
 
     let
-        addCancellationEvent blockHeader scriptHash = do
+        addRollbackEvent slotNo blockHash = do
             createdAt <- getCurrentTime
             STM.atomically $
                 writeTChan eventsChannel $
                     Event
-                        { eventType = Cancellation
-                        , blockHeader
+                        { eventType = Rollback
+                        , blockHash
+                        , slotNo
                         , createdAt
-                        , payload = CancellationPayload scriptHash
+                        , payload = RollbackPayload
                         }
-
             for_ maybeStorage $ \s ->
-                s.addCancellationEvent blockHeader scriptHash
+                s.addRollbackEvent slotNo blockHash
 
     let
         addSelectionEvent blockHeader = do
             createdAt <- getCurrentTime
+            let (C.BlockHeader slotNo blockHash blockNo) = blockHeader
             STM.atomically $
                 writeTChan eventsChannel $
                     Event
                         { eventType = Selection
-                        , blockHeader
+                        , blockHash
+                        , slotNo
                         , createdAt
-                        , payload = SelectionPayload
+                        , payload = SelectionPayload blockNo
                         }
             for_ maybeStorage $ \s ->
                 s.addSelectionEvent blockHeader
@@ -50,12 +53,14 @@ withEvents maybeStorage act = do
             for_ maybeStorage $ \s ->
                 s.addExecutionEvent executionContextId traceLogs evalError exUnits
 
+            let (C.BlockHeader slotNo blockHash blockNo) = blockHeader
             let event =
                     Event
                         { eventType = Execution
-                        , blockHeader
+                        , blockHash
+                        , slotNo
                         , createdAt
-                        , payload = ExecutionPayload payload
+                        , payload = ExecutionPayload blockNo payload
                         }
             STM.atomically $ writeTChan eventsChannel event
             pure event

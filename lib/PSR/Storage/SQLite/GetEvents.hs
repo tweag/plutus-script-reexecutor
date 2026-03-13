@@ -2,7 +2,6 @@ module PSR.Storage.SQLite.GetEvents (getEvents) where
 
 import Cardano.Api (
     BlockHeader (..),
-    ScriptHash (..),
  )
 import Cardano.Ledger.Plutus (ExUnits (..))
 import Data.Functor ((<&>))
@@ -49,7 +48,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                                 ":event_type"
                         , _eventFilterParam_target_name_or_script_hash
                             <&> mkNamedParam
-                                "ec.target_script_name = :name_or_hash or HEX(ec.target_script_hash) = UPPER(:name_or_hash) or HEX(c.target_script_hash) = UPPER(:name_or_hash)"
+                                "ec.target_script_name = :name_or_hash or HEX(ec.target_script_hash) = UPPER(:name_or_hash)"
                                 ":name_or_hash"
                         , _eventFilterParam_shadow_name_or_script_hash
                             <&> mkNamedParam
@@ -82,7 +81,6 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 \   WHEN s.block_hash IS NOT NULL THEN 'selection' \
                 \ END, \
                 \ COALESCE(ee.created_at, c.created_at, s.created_at), \
-                \ c.target_script_hash, \
                 \ json(ee.trace_logs), \
                 \ ee.eval_error, \
                 \ ee.exec_budget_cpu, \
@@ -113,18 +111,19 @@ getEvents getEvents_select pool EventFilterParams{..} =
 
             parameters = whereParams <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
-        rows :: [BlockHeader :. (EventType, UTCTime, Maybe ScriptHash, Maybe TraceLogs, Maybe EvalError, Maybe Integer, Maybe Integer) :. Maybe ExecutionContext] <-
+        rows :: [BlockHeader :. (EventType, UTCTime, Maybe TraceLogs, Maybe EvalError, Maybe Integer, Maybe Integer) :. Maybe ExecutionContext] <-
             queryNamed getEvents_select conn eventsQuery parameters
 
         pure $
             rows <&> \case
-                (blockHeader :. (eventType, createdAt, mCancellationScriptHash, mTraceLogs, evalError, mExBudgetCpu, mExBudgetMem) :. mExecutionContext) ->
+                (blockHeader :. (eventType, createdAt, mTraceLogs, evalError, mExBudgetCpu, mExBudgetMem) :. mExecutionContext) ->
                     let
+                        BlockHeader slotNo blockHash blockNo = blockHeader
                         payload = case eventType of
                             Execution ->
                                 case (mTraceLogs, mExBudgetCpu, mExBudgetMem, mExecutionContext) of
                                     (Just traceLogs, Just exBudgetCpu, Just exBudgetMem, Just context) ->
-                                        ExecutionPayload $
+                                        ExecutionPayload blockNo $
                                             ExecutionEventPayload
                                                 { traceLogs
                                                 , evalError
@@ -134,12 +133,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                                     _ ->
                                         -- TODO: handle the error properly
                                         error "Failed to retrieve execution event"
-                            Cancellation ->
-                                case mCancellationScriptHash of
-                                    Just sh -> CancellationPayload sh
-                                    _ ->
-                                        -- TODO: handle the error properly
-                                        error "The cancellation event should have a script hash"
-                            Selection -> SelectionPayload
+                            Rollback -> RollbackPayload
+                            Selection -> SelectionPayload blockNo
                      in
                         Event{..}

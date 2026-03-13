@@ -157,7 +157,10 @@ traceChainSyncEvent events = \case
     RollForward (C.BlockInMode _ blk) _ -> do
         let header = C.getBlockHeader blk
         events.addSelectionEvent header
-    _ -> pure ()
+    -- TODO: Handle rollback to genesis. We should invalidate all the blocks
+    RollBackward C.ChainPointAtGenesis _ -> pure ()
+    RollBackward (C.ChainPoint slotNo blockHash) _ ->
+        events.addRollbackEvent slotNo blockHash
 
 traceTransactionExecutionResult :: CM.ConfigMap -> Events -> TransactionContext era -> IO ()
 traceTransactionExecutionResult CM.ConfigMap{cmTargetScriptNames} events tc =

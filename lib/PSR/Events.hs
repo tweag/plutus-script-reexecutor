@@ -18,6 +18,10 @@ withEvents maybeStorage act = do
     let
         addRollbackEvent slotNo blockHash = do
             createdAt <- getCurrentTime
+            blocksCancelled <-
+                case maybeStorage of
+                    Nothing -> pure []
+                    Just s -> s.addRollbackEvent slotNo blockHash
             STM.atomically $
                 writeTChan eventsChannel $
                     Event
@@ -25,10 +29,8 @@ withEvents maybeStorage act = do
                         , blockHash
                         , slotNo
                         , createdAt
-                        , payload = RollbackPayload
+                        , payload = RollbackPayload blocksCancelled
                         }
-            for_ maybeStorage $ \s ->
-                s.addRollbackEvent slotNo blockHash
 
     let
         addSelectionEvent blockHeader = do

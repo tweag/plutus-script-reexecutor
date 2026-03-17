@@ -24,7 +24,7 @@ data EventType
 
 data EventPayload
     = ExecutionPayload C.BlockNo ExecutionEventPayload
-    | RollbackPayload
+    | RollbackPayload [C.Hash C.BlockHeader]
     | SelectionPayload C.BlockNo
     deriving (Generic)
 

@@ -2,6 +2,7 @@ module PSR.Storage.SQLite.GetEvents (getEvents) where
 
 import Cardano.Api (
     BlockHeader (..),
+    Hash,
  )
 import Cardano.Ledger.Plutus (ExUnits (..))
 import Data.Functor ((<&>))
@@ -82,6 +83,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 \ END, \
                 \ COALESCE(ee.created_at, c.created_at, s.created_at), \
                 \ json(ee.trace_logs), \
+                \ c.blocks_cancelled, \
                 \ ee.eval_error, \
                 \ ee.exec_budget_cpu, \
                 \ ee.exec_budget_mem, \
@@ -111,12 +113,12 @@ getEvents getEvents_select pool EventFilterParams{..} =
 
             parameters = whereParams <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
-        rows :: [BlockHeader :. (EventType, UTCTime, Maybe TraceLogs, Maybe EvalError, Maybe Integer, Maybe Integer) :. Maybe ExecutionContext] <-
+        rows :: [BlockHeader :. (EventType, UTCTime, Maybe TraceLogs, Maybe [Hash BlockHeader], Maybe EvalError, Maybe Integer, Maybe Integer) :. Maybe ExecutionContext] <-
             queryNamed getEvents_select conn eventsQuery parameters
 
         pure $
             rows <&> \case
-                (blockHeader :. (eventType, createdAt, mTraceLogs, evalError, mExBudgetCpu, mExBudgetMem) :. mExecutionContext) ->
+                (blockHeader :. (eventType, createdAt, mTraceLogs, blocksCancelled, evalError, mExBudgetCpu, mExBudgetMem) :. mExecutionContext) ->
                     let
                         BlockHeader slotNo blockHash blockNo = blockHeader
                         payload = case eventType of
@@ -133,7 +135,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                                     _ ->
                                         -- TODO: handle the error properly
                                         error "Failed to retrieve execution event"
-                            Rollback -> RollbackPayload
+                            Rollback -> RollbackPayload (maybe [] id blocksCancelled)
                             Selection -> SelectionPayload blockNo
                      in
                         Event{..}

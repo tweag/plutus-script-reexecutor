@@ -72,13 +72,14 @@ mkStorage metrics pool = do
             ]
 
     -- TODO: Update the metric
-    cancelBlocksAfterSlot :: Connection -> SlotNo -> IO ()
+    cancelBlocksAfterSlot :: Connection -> SlotNo -> IO [Hash BlockHeader]
     cancelBlocksAfterSlot conn slotNo = do
-        let q = "UPDATE block SET status = :set_status WHERE slot_no > :slot_no;"
-        executeNamed metrics.createBlockIfNotExists_insert conn q $
-            [ ":set_status" := BSCancelled
-            , ":slot_no" := slotNo
-            ]
+        let q = "UPDATE block SET status = :set_status WHERE slot_no > :slot_no RETURNING hash;"
+        fmap (fmap fromOnly) $
+            queryNamed metrics.createBlockIfNotExists_insert conn q $
+                [ ":set_status" := BSCancelled
+                , ":slot_no" := slotNo
+                ]
 
     getOrCreateCostModelParamsId :: Connection -> MajorProtocolVersion -> CostModel -> IO Integer
     getOrCreateCostModelParamsId conn (MajorProtocolVersion v) costModel = do
@@ -154,19 +155,21 @@ mkStorage metrics pool = do
                     -- TODO: handle the error properly
                     error "Failed to return execution context id"
 
-    addRollbackEvent :: SlotNo -> Hash BlockHeader -> IO ()
+    addRollbackEvent :: SlotNo -> Hash BlockHeader -> IO [Hash BlockHeader]
     addRollbackEvent slotNo hash =
         withResource pool $ \conn -> withTransaction conn $ do
             createPartialBlockIfNotExists conn slotNo hash
+            blocksCancelled <- cancelBlocksAfterSlot conn slotNo
             let params =
                     [ col "block_hash" hash
+                    , col "blocks_cancelled" blocksCancelled
                     ]
             sqlInsert
                 metrics.addRollbackEvent_insert
                 conn
                 "cancellation_event"
                 params
-            cancelBlocksAfterSlot conn slotNo
+            pure blocksCancelled
 
     addSelectionEvent :: BlockHeader -> IO ()
     addSelectionEvent blockHeader@(BlockHeader _ hash blockNo) =

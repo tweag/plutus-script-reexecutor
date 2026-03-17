@@ -167,7 +167,7 @@ mkStorage metrics pool = do
             sqlInsert
                 metrics.addRollbackEvent_insert
                 conn
-                "cancellation_event"
+                "rollback_event"
                 params
             pure blocksCancelled
 

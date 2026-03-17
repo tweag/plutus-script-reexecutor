@@ -22,6 +22,7 @@ import Control.Monad ((>=>))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Text qualified as Aeson
 import Data.ByteString (ByteString, toStrict)
+import Data.ByteString.Char8 qualified as BSC
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Database.SQLite.Simple hiding (execute, executeNamed, query, queryNamed)
@@ -85,6 +86,16 @@ instance FromField (Hash BlockHeader) where
     fromField f = do
         bs <- fromField f
         case deserialiseFromRawBytes (C.proxyToAsType Proxy) bs of
+            Right v -> pure v
+            Left err -> returnError ConversionFailed f (show err)
+
+instance ToField [Hash BlockHeader] where
+    toField hashList = toField $ BSC.unwords $ serialiseToRawBytes <$> hashList
+
+instance FromField [Hash BlockHeader] where
+    fromField f = do
+        bss <- BSC.words <$> fromField f
+        case sequence $ deserialiseFromRawBytes (C.proxyToAsType Proxy) <$> bss of
             Right v -> pure v
             Left err -> returnError ConversionFailed f (show err)
 

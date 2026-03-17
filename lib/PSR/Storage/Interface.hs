@@ -24,7 +24,7 @@ data FilterBy = ByNameOrHash Text | ByTxId Text | ByContextId Integer
 data Storage = Storage
     { addExecutionEvent :: ExecutionContextId -> TraceLogs -> Maybe EvalError -> ExUnits -> IO ()
     , addExecutionContext :: BlockHeader -> ExecutionContext -> IO ExecutionContextId
-    , addRollbackEvent :: SlotNo -> Hash BlockHeader -> IO ()
+    , addRollbackEvent :: SlotNo -> Hash BlockHeader -> IO [Hash BlockHeader]
     , addSelectionEvent :: BlockHeader -> IO ()
     , getEvents :: EventFilterParams -> IO [Event]
     , -- Returns the recent ExecutionContext that contains the provided name or script hash

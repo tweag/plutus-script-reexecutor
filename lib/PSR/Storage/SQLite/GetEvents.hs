@@ -2,7 +2,9 @@ module PSR.Storage.SQLite.GetEvents (getEvents) where
 
 import Cardano.Api (
     BlockHeader (..),
+    BlockNo,
     Hash,
+    SlotNo,
  )
 import Cardano.Ledger.Plutus (ExUnits (..))
 import Data.Functor ((<&>))
@@ -113,29 +115,53 @@ getEvents getEvents_select pool EventFilterParams{..} =
 
             parameters = whereParams <> [":limit" := limitParameter, ":offset" := offsetParameter]
 
-        rows :: [BlockHeader :. (EventType, UTCTime, Maybe TraceLogs, Maybe [Hash BlockHeader], Maybe EvalError, Maybe Integer, Maybe Integer) :. Maybe ExecutionContext] <-
-            queryNamed getEvents_select conn eventsQuery parameters
-
-        pure $
-            rows <&> \case
-                (blockHeader :. (eventType, createdAt, mTraceLogs, blocksCancelled, evalError, mExBudgetCpu, mExBudgetMem) :. mExecutionContext) ->
-                    let
-                        BlockHeader slotNo blockHash blockNo = blockHeader
-                        payload = case eventType of
-                            Execution ->
-                                case (mTraceLogs, mExBudgetCpu, mExBudgetMem, mExecutionContext) of
-                                    (Just traceLogs, Just exBudgetCpu, Just exBudgetMem, Just context) ->
-                                        ExecutionPayload blockNo $
-                                            ExecutionEventPayload
-                                                { traceLogs
-                                                , evalError
-                                                , exUnits = ExUnits (fromInteger exBudgetCpu) (fromInteger exBudgetMem)
-                                                , context
-                                                }
-                                    _ ->
-                                        -- TODO: handle the error properly
-                                        error "Failed to retrieve execution event"
-                            Rollback -> RollbackPayload (maybe [] id blocksCancelled)
-                            Selection -> SelectionPayload blockNo
-                     in
-                        Event{..}
+        rows <- queryNamed getEvents_select conn eventsQuery parameters
+        pure $ rowToEvent <$> rows
+  where
+    rowToEvent ::
+        ( ( SlotNo
+          , Hash BlockHeader
+          , Maybe BlockNo
+          , EventType
+          , UTCTime
+          , Maybe TraceLogs
+          , Maybe [Hash BlockHeader]
+          , Maybe EvalError
+          , Maybe Integer
+          , Maybe Integer
+          )
+            :. Maybe ExecutionContext
+        ) ->
+        Event
+    rowToEvent
+        ( ( slotNo
+                , blockHash
+                , mBlockNo
+                , eventType
+                , createdAt
+                , mTraceLogs
+                , blocksCancelled
+                , evalError
+                , mExBudgetCpu
+                , mExBudgetMem
+                )
+                :. mExecutionContext
+            ) =
+            let
+                payloadError = "rowToEvent: Unable to parse the payload."
+                payload = fromMaybe (error payloadError) $ case eventType of
+                    Execution -> do
+                        traceLogs <- mTraceLogs
+                        exBudgetCpu <- mExBudgetCpu
+                        exBudgetMem <- mExBudgetMem
+                        let exUnits =
+                                ExUnits
+                                    (fromInteger exBudgetCpu)
+                                    (fromInteger exBudgetMem)
+                        context <- mExecutionContext
+                        blockNo <- mBlockNo
+                        pure $ ExecutionPayload blockNo $ ExecutionEventPayload{..}
+                    Rollback -> pure $ RollbackPayload (maybe [] id blocksCancelled)
+                    Selection -> SelectionPayload <$> mBlockNo
+             in
+                Event{..}

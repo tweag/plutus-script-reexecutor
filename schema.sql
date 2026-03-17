@@ -52,14 +52,14 @@ CREATE TABLE IF NOT EXISTS execution_event (
 );
 CREATE INDEX IF NOT EXISTS idx_execution_event_created_at ON execution_event(created_at ASC);
 
-CREATE TABLE IF NOT EXISTS cancellation_event (
+CREATE TABLE IF NOT EXISTS rollback_event (
   event_id INTEGER PRIMARY KEY,
   block_hash BLOB NOT NULL REFERENCES block (hash),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   blocks_cancelled BLOB NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_cancellation_event_block_hash ON cancellation_event(block_hash);
-CREATE INDEX IF NOT EXISTS idx_cancellation_event_created_at ON cancellation_event(created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_rollback_event_block_hash ON rollback_event(block_hash);
+CREATE INDEX IF NOT EXISTS idx_rollback_event_created_at ON rollback_event(created_at ASC);
 
 CREATE TABLE IF NOT EXISTS selection_event (
   event_id INTEGER PRIMARY KEY,

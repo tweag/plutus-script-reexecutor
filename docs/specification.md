@@ -25,8 +25,8 @@ This is up-to-date document. The history of decisions that influenced the specif
 The Plutus Script Re-Executor system consists of main components:
 
 1. **Scanning Process** — process that connects to Cardano node and follows it, scanning the blocks
-2. **Context builder** — instrument that provides `ScriptContext` for a given `ScriptHash` 
-3. **Script executor** — tool to run custom `PlutusCore` scripts using the provided `ScriptContext` 
+2. **Context builder** — instrument that provides `ScriptContext` for a given `ScriptHash`
+3. **Script executor** — tool to run custom `PlutusCore` scripts using the provided `ScriptContext`
 4. **Events API** — REST endpoints with access to the results of the re-executor
 5. **Full Cardano Node** — standard node providing blocks, validation services and canonical chain state
 6. **Leash Node-to-Client protocol** — mini-protocol & connection mode to limit the node's eagerness
@@ -53,7 +53,7 @@ graph TD
     F -->|configures| M
 
     M[Configuration map with custom scripts]
-    
+
     G{{Leashed Cardano Node:<br/>- Provides blocks<br/>- Serves queries}}
 
     D1 -->|provides blocks & transactions| D2
@@ -93,12 +93,12 @@ graph TD
     class M configurationClass
 ```
 
-The dApp developer will run the Plutus Script Re-Executor (PSR) that connects to the Cardano Node using leashing connection mode. The scanning process will follow the node to scan the blocks and transactions for ScriptHashes specified in the configuration map. Each script that has a `ScriptHash` mentioned in the configuration map, will be re-executed by the PSR reusing/rebuilding the same ScriptContext and the results of the execution will be saved in data storage (optional). The events emitted by the PSR are available via WebSocket chanel and, if data storage is enabled, via HTTP Events Api with a metrics endpoint to monitor the status of the application. 
+The dApp developer will run the Plutus Script Re-Executor (PSR) that connects to the Cardano Node using leashing connection mode. The scanning process will follow the node to scan the blocks and transactions for ScriptHashes specified in the configuration map. Each script that has a `ScriptHash` mentioned in the configuration map, will be re-executed by the PSR reusing/rebuilding the same ScriptContext and the results of the execution will be saved in data storage (optional). The events emitted by the PSR are available via WebSocket chanel and, if data storage is enabled, via HTTP Events Api with a metrics endpoint to monitor the status of the application.
 
 ### Glossary
 
 - `ScriptHash` — Type representing the /BLAKE2b-224/ hash of a script. 28 bytes.
-- `ScriptContext` — An input to a Plutus script created by the ledger. It includes details of the transaction being validated. Additionally, since a transaction may do multiple things, each of which needs to be validated by a separate script, the script context also specifies what exactly the current script is responsible for validating. 
+- `ScriptContext` — An input to a Plutus script created by the ledger. It includes details of the transaction being validated. Additionally, since a transaction may do multiple things, each of which needs to be validated by a separate script, the script context also specifies what exactly the current script is responsible for validating.
 - `PlutusCore` — a low-level language for on-chain code, based on untyped lambda calculus.
 - `Mini-protocol` — a mini protocol is a well-defined and modular building block of the network protocol. Structuring a protocol around mini-protocols helps manage the overall complexity of the design and adds useful flexibility.
 - `Leashing` — by "leashing" we mean setting the point`leashing_point` in the node such that the node won't process blocks after `leashing_point + k`.
@@ -125,28 +125,28 @@ More here https://plutus.cardano.intersectmbo.org/docs/glossary
 - There might be `n` processes to execute scripts in parallel. (optional)
 - Timeout in milliseconds to limit the execution time. (optional)
 
-**Details**: the executor takes the configuration map and each time it sees a known `ScriptHash` in the transaction, it executed the corresponding script from the map. 
+**Details**: the executor takes the configuration map and each time it sees a known `ScriptHash` in the transaction, it executed the corresponding script from the map.
 
 #### 4. Events API
 
 **Purpose**: provides access to the results of the scripts re-executing. Note, that `GET` endpoints provide data only if the SQLite database is enabled. Only the WebSocket endpoints streams the data in real time.
 
-**Architecture**: HTTP API that queries data from the data storage and returns JSON responses. Also provides OpenAPI spec. 
+**Architecture**: HTTP API that queries data from the data storage and returns JSON responses. Also provides OpenAPI spec.
 
 **Types of events**:
 
 - **Execution**: identifies each re-execution and includes its observed trace messages.
 - **Selection**: identifies when each time the local node updates its selection, including the slot number, block number, and header hash, which is sufficient information for the dapp developer to estimate of the on-going settlement probability for each script execution, according to standard Cardano settlement tables.
-- **Cancellation**: identifies which script executions were undone whenever the local node switches away from the blocks that executed some scripts in the configuration data.
+- **Rollback**: identifies which blocks were cancelled.
 
 **Endpoints**:
 
 ##### WebSocket endpoints /events-ws and /events-ws/{ script_hash | name or alias }
 
-Streams events in JSON format. Also supports the query parameters, allowing to filter out the irrelevant events. 
+Streams events in JSON format. Also supports the query parameters, allowing to filter out the irrelevant events.
 
 **Query Parameters**:
-- `type`: `execution`, `selection`, or `cancellation` (optional)
+- `type`: `execution`, `selection`, or `rollback` (optional)
 - `time_begin`: ISO 8601 time range begin (optional)
 - `time_end`: ISO 8601 time range end (optional)
 - `slot_begin`: Slot number range begin (optional)
@@ -157,7 +157,7 @@ Streams events in JSON format. Also supports the query parameters, allowing to f
 Returns all events with filtering.
 
 **Query Parameters**:
-- `type`: `execution`, `selection`, or `cancellation` (optional)
+- `type`: `execution`, `selection`, or `rollback` (optional)
 - `time_begin`: ISO 8601 time range begin (optional)
 - `time_end`: ISO 8601 time range end (optional)
 - `slot_begin`: Slot number range begin (optional)
@@ -172,7 +172,7 @@ Returns all events with filtering.
 Returns all events relevant to the provided `script_hash` or `name` with filtering.
 
 **Query Parameters**:
-- `type`: `execution`, `selection`, or `cancellation` (optional)
+- `type`: `execution`, `selection`, or `rollback` (optional)
 - `time_begin`: ISO 8601 time range begin (optional)
 - `time_end`: ISO 8601 time range end (optional)
 - `slot_begin`: Slot number range begin (optional)
@@ -206,7 +206,7 @@ Prometheus metrics endpoint exposing operational statistics in standard expositi
 
 #### 5. Full Cardano Node Integration
 
-**Purpose**: Provide data for the scanning process. 
+**Purpose**: Provide data for the scanning process.
 
 **Responsibilities**:
 
@@ -224,7 +224,7 @@ Prometheus metrics endpoint exposing operational statistics in standard expositi
 
 If the re-executor is too slow to process the events, it can "leash" the node to pause the block processing, slowing down and allowing for the re-executor to catch up.
 
-**Details**: 
+**Details**:
 
 1. We want to leash the node when we see a relevant block with transactions that include `ScriptHash`es we are interested in.
 2. We want to make sure that we don't fall behind and don't see such a block too late (more than 12 hrs for example).
@@ -288,7 +288,7 @@ and the relevant code implementation https://github.com/IntersectMBO/ouroboros-n
 
 The CDDL could be extended in the following ways:
 
-1. Adding new reasons of failures: 
+1. Adding new reasons of failures:
 
 ```
 acquireFailurePointTooOld     = 0
@@ -342,15 +342,15 @@ There is `FetchClientStateVars` ADT, https://github.com/IntersectMBO/ouroboros-n
 
 If the node receives `msgLeashedAcquire` message, it sets the `PeerFetchStatus` to `PeerFetchStatusPaused` or `fetchClientPausedVar` to `True`.
 
-If the `fetchClientPausedVar` is `True` or `PeerFetchStatus` is `PeerFetchStatusPaused` the `FetchClient` stops any communication. 
+If the `fetchClientPausedVar` is `True` or `PeerFetchStatus` is `PeerFetchStatusPaused` the `FetchClient` stops any communication.
 
-When the node receives `msgRelease`, the `fetchClientCtxPaused` is set to `False` or `PeerFetchStatus` switchs to `PeerFetchStatusReady`. 
+When the node receives `msgRelease`, the `fetchClientCtxPaused` is set to `False` or `PeerFetchStatus` switchs to `PeerFetchStatusReady`.
 
 **Strategy 2**:
 
 We can stop the communication by removing all peers and by pausing adding new ones.
 
-**Configuration**: we might use a similar limit as the limit of eagerness (2,160) to control the window of blocks accessible to the node on leash. 
+**Configuration**: we might use a similar limit as the limit of eagerness (2,160) to control the window of blocks accessible to the node on leash.
 
 **Strategy 3**:
 
@@ -374,7 +374,7 @@ We consider the leashing implementation utilising the existing LoE mechanism.
 
 #### 7. Configuration Map
 
-**Purpose**: allows to user to specify which scripts should be executed under specified `script_hash`. 
+**Purpose**: allows to user to specify which scripts should be executed under specified `script_hash`.
 
 **Format**:
 
@@ -410,7 +410,7 @@ where `my_custom_script.json`:
 
 #### 8. Data Storage
 
-**Purpose**: storage of the emitted events for Events API and future analysis. 
+**Purpose**: storage of the emitted events for Events API and future analysis.
 
 **Motivation**: we want to provide an option to store the results of the scripts execution for future analysis. We provide two options: an unstructured logging to a file and a structured storage using a SQLite database with the entities described below.
 
@@ -420,14 +420,14 @@ where `my_custom_script.json`:
 
 Block:
 - `block_number`: Block number
-- `hash`: Header hash 
-- `slot`: Slot number 
+- `hash`: Header hash
+- `slot`: Slot number
 
 Execution context:
 - `context_id`: Id of the context
 - `block_hash`: Block header hash
-- `cost_model_params_id`: Id of the cost model params 
-- `transaction_hash`: Transaction id 
+- `cost_model_params_id`: Id of the cost model params
+- `transaction_hash`: Transaction id
 - `target_script_hash`: Target script hash
 - `target_script_name`: Name of the target script (optional)
 - `shadow_script_hash`: Shadow script hash
@@ -436,7 +436,7 @@ Execution context:
 - `major_protocol_version`: Major protocol version
 - `datum`: Datum of the script (optional)
 - `redeemer`: Redeemer of the script (optional),
-- `script_context`: Script context 
+- `script_context`: Script context
 - `exec_budget_max_cpu`: Max budget cpu
 - `exec_budget_max_mem`: Max budget mem
 - `created_at`: Timestamp
@@ -447,22 +447,22 @@ Cost model params:
 
 Execution event:
 - `event_id`: Id of the event
-- `context_id`: Id of the execution event 
-- `trace_logs`: Trace of the execution 
+- `context_id`: Id of the execution event
+- `trace_logs`: Trace of the execution
 - `exec_budget_cpu`: Consumed budget cpu
 - `exec_budget_mem`: Consumed budget mem
 - `eval_error`: Evaluation error (optional)
 - `created_at`: Timestamp
 
-Cancellation event:
+Rollback event:
 - `event_id`: Id of the event
-- `block_hash`: Block header hash 
-- `target_script_hash`: Target script hash that was cancelled
+- `block_hash`: Block header hash
+- `blocks_cancelled`: Blocks that were rolled back
 - `created_at`: Timestamp
 
 Selection event:
 - `event_id`: Id of the event
-- `block_hash`: Block header hash 
+- `block_hash`: Block header hash
 - `created_at`: Timestamp
 
 **Schema**:
@@ -483,20 +483,20 @@ erDiagram
         int ledger_language
         int major_protocol_version
         string script_name
-        binary datum 
-        binary redeemer 
+        binary datum
+        binary redeemer
         binary script_context
         int exec_budget_max_cpu
-        int exec_budget_max_mem 
+        int exec_budget_max_mem
         timestamp created_at
     }
     EXECUTION_EVENT {
-        int event_id 
-        int context_id 
+        int event_id
+        int context_id
         string trace_logs
-        string eval_error 
+        string eval_error
         int exec_budget_cpu
-        int exec_budget_mem 
+        int exec_budget_mem
         timestamp created_at
     }
     COST_MODEL_PARAMS {
@@ -505,21 +505,21 @@ erDiagram
     }
     EXECUTION_CONTEXT }o--|| COST_MODEL_PARAMS : contains
     BLOCK ||--o{ SELECTION_EVENT : contains
-    BLOCK ||--o{ CANCELLATION_EVENT : contains
+    BLOCK ||--o{ ROLLBACK_EVENT : contains
     BLOCK {
         int block_number
         int slot_number
         binary hash
     }
     SELECTION_EVENT {
-        int event_id 
+        int event_id
         binary block_hash
         timestamp created_at
     }
-    CANCELLATION_EVENT {
-        int event_id 
+    ROLLBACK_EVENT {
+        int event_id
         binary block_hash
-        binary target_script_hash 
+        binary blocks_cancelled
         timestamp created_at
     }
 ```
@@ -528,4 +528,3 @@ erDiagram
 
 - https://ouroboros-network.cardano.intersectmbo.org/pdfs/network-spec/network-spec.pdf
 - https://ouroboros-consensus.cardano.intersectmbo.org/docs/references/miscellaneous/genesis_design/
-

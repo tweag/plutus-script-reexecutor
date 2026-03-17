@@ -45,7 +45,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                             <&> mkNamedParam
                                 "(CASE \
                                 \ WHEN :event_type = 'execution' THEN ec.block_hash \
-                                \ WHEN :event_type = 'cancellation' THEN c.block_hash \
+                                \ WHEN :event_type = 'rollback' THEN c.block_hash \
                                 \ WHEN :event_type = 'selection' THEN s.block_hash \
                                 \ END) IS NOT NULL"
                                 ":event_type"
@@ -80,7 +80,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 "SELECT b.slot_no, b.hash, b.block_no, \
                 \ CASE \
                 \   WHEN ec.block_hash IS NOT NULL THEN 'execution' \
-                \   WHEN c.block_hash IS NOT NULL THEN 'cancellation' \
+                \   WHEN c.block_hash IS NOT NULL THEN 'rollback' \
                 \   WHEN s.block_hash IS NOT NULL THEN 'selection' \
                 \ END, \
                 \ COALESCE(ee.created_at, c.created_at, s.created_at), \
@@ -106,7 +106,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 \ LEFT JOIN execution_context ec ON ec.block_hash = b.hash \
                 \ LEFT JOIN execution_event ee ON ee.context_id = ec.context_id \
                 \ LEFT JOIN cost_model_params cmp ON cmp.params_id = ec.cost_model_params_id \
-                \ LEFT JOIN cancellation_event c ON c.block_hash = b.hash \
+                \ LEFT JOIN rollback_event c ON c.block_hash = b.hash \
                 \ LEFT JOIN selection_event s ON s.block_hash = b.hash "
                     <> whereQuery
                     <> " ORDER BY COALESCE(ee.created_at, c.created_at, s.created_at) ASC \

@@ -79,6 +79,7 @@ data ConfigMapFile = ConfigMapFile
     { cmfStart :: Maybe C.ChainPoint
     , cmfScripts :: [ScriptConfiguration]
     , cmfRunningMode :: RunningMode
+    , cmfConfirmationDepth :: Maybe Int
     }
     deriving (Show, Eq)
 
@@ -94,6 +95,7 @@ data ConfigMap = ConfigMap
     , cmLocalNodeConn :: C.LocalNodeConnectInfo
     , cmLeashId :: LeashID
     , cmRunningMode :: RunningMode
+    , cmConfirmationDepth :: Int
     }
 
 -- | Information relating to a loaded script
@@ -218,4 +220,5 @@ readConfigMap scriptYaml networkId socketPath leashId = runExceptT $ do
             , cmLocalNodeConn = mkLocalNodeConnectInfo networkId socketPath
             , cmLeashId = leashId
             , cmRunningMode = cmfRunningMode
+            , cmConfirmationDepth = maybe 2160 id cmfConfirmationDepth
             }

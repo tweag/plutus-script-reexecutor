@@ -22,15 +22,15 @@ import PSR.Storage.SQLite.Utils
 import PSR.Types (BlockStatus (..))
 import PlutusLedgerApi.Common (MajorProtocolVersion (..))
 
-withSqliteStorage :: FilePath -> (Storage -> IO ()) -> IO ()
-withSqliteStorage dbPath act = do
+withSqliteStorage :: FilePath -> Int -> (Storage -> IO ()) -> IO ()
+withSqliteStorage dbPath confirmationDepth act = do
     pool <- newPool (defaultPoolConfig (openWithPragmas dbPath) close 120 10)
     metrics <- initialiseMetrics
-    storage <- mkStorage metrics pool
+    storage <- mkStorage confirmationDepth metrics pool
     act storage
 
-mkStorage :: SqliteMetrics -> Pool Connection -> IO Storage
-mkStorage metrics pool = do
+mkStorage :: Int -> SqliteMetrics -> Pool Connection -> IO Storage
+mkStorage confirmationDepth metrics pool = do
     withResource pool initSchema
     pure $ Storage{..}
   where
@@ -181,9 +181,7 @@ mkStorage metrics pool = do
                 conn
                 "selection_event"
                 params
-            -- TODO: Get k from global config
-            let k = 2080
-            commitBlock conn (blockNo - k)
+            commitBlock conn (blockNo - fromIntegral confirmationDepth)
 
     getExecutionContexts :: [FilterBy] -> IO [(BlockHeader, ExecutionContextId, ExecutionContext)]
     getExecutionContexts filters =

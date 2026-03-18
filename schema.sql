@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS block (
   status TEXT CHECK(status IN ('unknown', 'cancelled', 'committed'))
 ) WITHOUT ROWID;
 
+CREATE INDEX IF NOT EXISTS idx_block_slot_no ON block(slot_no);
+
 CREATE TABLE IF NOT EXISTS execution_context (
   context_id INTEGER PRIMARY KEY,
 

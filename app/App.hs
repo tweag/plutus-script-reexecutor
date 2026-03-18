@@ -49,7 +49,7 @@ run Options{..} = do
                 act Nothing
             Just dbPath -> do
                 putStrLn $ "Using sqlite storage at " <> dbPath
-                Storage.withSqliteStorage dbPath (act . Just)
+                Storage.withSqliteStorage dbPath cmConfirmationDepth (act . Just)
 
     withMaybeStorage $ \maybeStorage ->
         Events.withEvents maybeStorage $ \events -> do
@@ -73,6 +73,9 @@ generateScriptsExample = do
 #   slot: 11617
 #   blockHash: 9b65597bb73e21d5b58a1f5958f8b95324b142727efb2746c577998e93df3463
 
+# Example of the security parameter:
+# confirmation_depth: 200
+
 # sync_initial_local_state | empty_initial_local_state | without_local_state
 running_mode: sync_initial_local_state
 
@@ -80,7 +83,7 @@ scripts:
   # The target script hash that we want to re-run locally.
   # In this example it's just a random hash, so please replace with your own.
   - hash: "22734734b6b0410cf4a0e3bd731fb98c55ac2b2a27b1eecb8d3b438c"
-    
+
     # The name is optional and might be helpful
     # name: "My script"
 

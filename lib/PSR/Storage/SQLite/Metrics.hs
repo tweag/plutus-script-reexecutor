@@ -5,6 +5,7 @@ import PSR.Storage.SQLite.Instances ()
 
 data SqliteMetrics = SqliteMetrics
     { createBlockIfNotExists_insert :: Summary
+    , setBlockStatus_update :: Summary
     , getOrCreateCostModelParamsId_insert :: Summary
     , getOrCreateCostModelParamsId_select :: Summary
     , setOrCreateBlockId_insert :: Summary
@@ -22,6 +23,10 @@ initialiseMetrics = do
         regSummary
             "sqlite_createBlockIfNotExists_insert"
             "Execution time of createBlockIfNotExists insert query"
+    setBlockStatus_update <-
+        regSummary
+            "sqlite_setBlockStatus_update"
+            "Execution time of setBlockStatus update query"
     getOrCreateCostModelParamsId_select <-
         regSummary
             "sqlite_getOrCreateCostModelParamsId_select"

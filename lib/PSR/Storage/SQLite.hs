@@ -61,22 +61,20 @@ mkStorage confirmationDepth metrics pool = do
     createBlockIfNotExists conn (BlockHeader slotNo hash blockNo) =
         createBlockIfNotExistsUtil conn slotNo hash (Just blockNo)
 
-    -- TODO: Update the metric
     commitBlock :: Connection -> BlockNo -> IO ()
     commitBlock conn blockNoToCommit = do
         let q = "UPDATE block SET status = :set_status WHERE block_no = :block_no AND status = :prev_status;"
-        executeNamed metrics.createBlockIfNotExists_insert conn q $
+        executeNamed metrics.setBlockStatus_update conn q $
             [ ":set_status" := BSCommitted
             , ":prev_status" := BSUnknown
             , ":block_no" := blockNoToCommit
             ]
 
-    -- TODO: Update the metric
     cancelBlocksAfterSlot :: Connection -> SlotNo -> IO [Hash BlockHeader]
     cancelBlocksAfterSlot conn slotNo = do
         let q = "UPDATE block SET status = :set_status WHERE slot_no > :slot_no RETURNING hash;"
         fmap (fmap fromOnly) $
-            queryNamed metrics.createBlockIfNotExists_insert conn q $
+            queryNamed metrics.setBlockStatus_update conn q $
                 [ ":set_status" := BSCancelled
                 , ":slot_no" := slotNo
                 ]

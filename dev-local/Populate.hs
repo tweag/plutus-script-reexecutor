@@ -18,6 +18,7 @@ module Populate (
     buildStakeAddress,
     genRegCertStakeAddress,
     genDeregCertStakeAddress,
+    firstNonEmptyLine,
     -- Globals
     env_LOCAL_CONFIG_DIR,
     env_POPULATE_WORK_DIR,

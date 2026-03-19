@@ -9,6 +9,7 @@ module Main (main) where
 -------------------------------------------------------------------------------
 
 import Cardano.Api (IsPlutusScriptLanguage)
+import Control.Monad (when)
 import Data.Function ((&))
 import Data.String (IsString (..))
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -18,6 +19,9 @@ import Onchain.V2.Simple (CompiledCodeLang)
 import Options.Applicative hiding (str)
 import Populate
 import Streamly.Console.Stdio qualified as Console
+import Streamly.FileSystem.FileIO qualified as File
+import Streamly.FileSystem.Path qualified as Path
+import Streamly.System.Command qualified as Cmd
 import Streamly.Unicode.String (str)
 import System.Environment (setEnv)
 import System.FilePath ((</>))
@@ -260,8 +264,26 @@ createConfig = do
 -- Main
 --------------------------------------------------------------------------------
 
-startLocalTestnet :: IO ()
-startLocalTestnet = do
+changeSecurityParam :: Int -> IO ()
+changeSecurityParam i = do
+    -- NOTE: Using jq here fails because of runCmd. Need to investigate this
+    -- later.
+    -- TODO: Use jq instead of sed
+    runCmd_
+        [str|sed -i 's/"securityParam": [0-9]*/"securityParam": 100/' #{genesis}|]
+    genesisP <- Path.fromString genesis
+    updatedSecParam <-
+        File.readChunks genesisP
+            & Cmd.pipeChunks [str|jq -r ".securityParam"|]
+            & firstNonEmptyLine "changeSecurityParam"
+    when (updatedSecParam /= secParam) $
+        error "changeSecurityParam: Unable to change security param."
+  where
+    genesis = env_TESTNET_WORK_DIR </> "shelley-genesis.json"
+    secParam = show i
+
+createTestnetConfig :: IO ()
+createTestnetConfig = do
     runCmd
         "cardano-testnet create-env"
         [ opt "num-pool-nodes" env_CARDANO_TESTNET_NUM_NODES
@@ -270,6 +292,10 @@ startLocalTestnet = do
         , opt "testnet-magic" env_CARDANO_TESTNET_MAGIC
         ]
         & Console.putChunks
+    changeSecurityParam 100
+
+startLocalTestnet :: IO ()
+startLocalTestnet = do
     runCmd
         "cardano-testnet cardano"
         [ opt "num-pool-nodes" env_CARDANO_TESTNET_NUM_NODES
@@ -289,6 +315,7 @@ setup :: IO ()
 setup = do
     clean
     createConfig
+    createTestnetConfig
 
 main :: IO ()
 main = do

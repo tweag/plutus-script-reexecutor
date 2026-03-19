@@ -45,6 +45,7 @@ data Command
     = StartLocalTestnet
     | Clean
     | Populate PopulateCommand
+    | TriggerRollback
     | Setup
 
 populateCommandParser :: Parser PopulateCommand
@@ -95,6 +96,12 @@ commandParser =
                 ( info
                     (pure Setup)
                     (progDesc "Setup the initial config files")
+                )
+            <> command
+                "trigger-rollback"
+                ( info
+                    (pure TriggerRollback)
+                    (progDesc "Trigger rollback")
                 )
         )
 
@@ -269,17 +276,24 @@ changeSecurityParam i = do
     -- NOTE: Using jq here fails because of runCmd. Need to investigate this
     -- later.
     -- TODO: Use jq instead of sed
-    runCmd_
-        [str|sed -i 's/"securityParam": [0-9]*/"securityParam": 100/' #{genesis}|]
-    genesisP <- Path.fromString genesis
-    updatedSecParam <-
-        File.readChunks genesisP
-            & Cmd.pipeChunks [str|jq -r ".securityParam"|]
-            & firstNonEmptyLine "changeSecurityParam"
-    when (updatedSecParam /= secParam) $
-        error "changeSecurityParam: Unable to change security param."
+    updateAndCheck
+        shelly
+        [str|s/"securityParam": [0-9]*/"securityParam": 100/|]
+        ".securityParam"
+    updateAndCheck byron [str|s/"k": [0-9]*/"k": 100/|] ".protocolConsts.k"
   where
-    genesis = env_TESTNET_WORK_DIR </> "shelley-genesis.json"
+    updateAndCheck fp sedQ jqQ = do
+        runCmd_ [str|sed -i '#{sedQ}' #{fp}|]
+        fpP <- Path.fromString fp
+        updated <-
+            File.readChunks fpP
+                & Cmd.pipeChunks [str|jq -r "#{jqQ}"|]
+                & firstNonEmptyLine "changeSecurityParam.updateAndCheck"
+        when (updated /= secParam) . error $
+            "changeSecurityParam: Unable to change security param: " ++ fp
+
+    shelly = env_TESTNET_WORK_DIR </> "shelley-genesis.json"
+    byron = env_TESTNET_WORK_DIR </> "byron-genesis.json"
     secParam = show i
 
 createTestnetConfig :: IO ()
@@ -331,4 +345,5 @@ main = do
         Populate PCTriggerTest -> testScriptTrigger
         Populate PCEscrow -> escrow
         Populate PCFanout -> runFanout
+        TriggerRollback -> triggerRollback
         Setup -> setup

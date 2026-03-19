@@ -19,6 +19,7 @@ module Populate (
     genRegCertStakeAddress,
     genDeregCertStakeAddress,
     firstNonEmptyLine,
+    optNode1Socket,
     -- Globals
     env_LOCAL_CONFIG_DIR,
     env_POPULATE_WORK_DIR,
@@ -29,6 +30,7 @@ module Populate (
     testScriptTrigger,
     escrow,
     runFanout,
+    triggerRollback,
 ) where
 
 -------------------------------------------------------------------------------
@@ -36,15 +38,19 @@ module Populate (
 -------------------------------------------------------------------------------
 
 import Control.Concurrent (threadDelay)
+import Control.Exception (bracket)
 import Control.Monad (void)
 import Data.Function ((&))
 import Data.List (isPrefixOf)
+import Data.List qualified as List
 import Data.Maybe (fromJust)
 import Data.Word (Word8)
 import Streamly.Data.Array (Array)
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
+import Streamly.FileSystem.FileIO qualified as File
+import Streamly.FileSystem.Path qualified as Path
 import Streamly.System.Command qualified as Cmd
 import Streamly.Unicode.Stream qualified as Unicode
 import Streamly.Unicode.String (str)
@@ -113,14 +119,17 @@ env_TESTNET_WORK_DIR = "devnet-env"
 env_LOCAL_CONFIG_DIR :: FilePath
 env_LOCAL_CONFIG_DIR = "local-config"
 
-env_CARDANO_SOCKET :: FilePath
-env_CARDANO_SOCKET = env_TESTNET_WORK_DIR </> "socket/node1/sock"
+env_CARDANO_TESTNET_NUM_NODES :: Int
+env_CARDANO_TESTNET_NUM_NODES = 3
+
+env_NODE1_SOCKET :: FilePath
+env_NODE1_SOCKET = env_TESTNET_WORK_DIR </> "socket/node1/sock"
+
+env_NODE2_SOCKET :: FilePath
+env_NODE2_SOCKET = env_TESTNET_WORK_DIR </> "socket/node2/sock"
 
 env_CARDANO_TESTNET_MAGIC :: Int
 env_CARDANO_TESTNET_MAGIC = 42
-
-env_CARDANO_TESTNET_NUM_NODES :: Int
-env_CARDANO_TESTNET_NUM_NODES = 1
 
 env_FAUCET_WALLET_VKEY_FILE :: FilePath
 env_FAUCET_WALLET_VKEY_FILE = env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.vkey"
@@ -168,8 +177,11 @@ raw = CoRaw
 optNetwork :: CmdOption
 optNetwork = opt "testnet-magic" env_CARDANO_TESTNET_MAGIC
 
-optSocketPath :: CmdOption
-optSocketPath = opt "socket-path" env_CARDANO_SOCKET
+optNode1Socket :: CmdOption
+optNode1Socket = opt "socket-path" env_NODE1_SOCKET
+
+optNode2Socket :: CmdOption
+optNode2Socket = opt "socket-path" env_NODE2_SOCKET
 
 runCmd_ :: String -> IO ()
 runCmd_ cmd = do
@@ -216,7 +228,7 @@ buildTransaction :: [CmdOption] -> IO ()
 buildTransaction args =
     runCmd
         "cardano-cli conway transaction build"
-        (optNetwork : optSocketPath : args)
+        (optNetwork : optNode2Socket : args)
         & drain
 
 signTransaction :: [CmdOption] -> IO ()
@@ -230,7 +242,7 @@ submitTransaction :: [CmdOption] -> IO ()
 submitTransaction args =
     runCmd
         "cardano-cli conway transaction submit"
-        (optNetwork : optSocketPath : args)
+        (optNetwork : optNode2Socket : args)
         & drain
 
 buildStakeAddress :: [CmdOption] -> IO ()
@@ -264,7 +276,7 @@ getFirstUtxoAt walletAddr =
     runCmd
         "cardano-cli conway query utxo"
         [ optNetwork
-        , optSocketPath
+        , optNode2Socket
         , opt "address" walletAddr
         ]
         & Cmd.pipeChunks [str|jq -r "keys[0]"|]
@@ -275,7 +287,7 @@ getUtxoListAt walletAddr =
     runCmd
         "cardano-cli conway query utxo"
         [ optNetwork
-        , optSocketPath
+        , optNode2Socket
         , opt "address" walletAddr
         ]
         & Cmd.pipeChunks [str|jq -r "keys[]"|]
@@ -287,7 +299,7 @@ nullUtxo utxo =
     runCmd
         "cardano-cli latest query utxo"
         [ optNetwork
-        , optSocketPath
+        , optNode2Socket
         , opt "tx-in" utxo
         ]
         & Cmd.pipeChunks [str|jq 'type == "object" and length == 0'|]
@@ -678,3 +690,89 @@ escrow = do
     faucet <- env_FAUCET_WALLET
     void $ transferAda faucet alice 2000000
     void $ transferAda faucet bob 2000000
+
+--------------------------------------------------------------------------------
+-- Rollback
+--------------------------------------------------------------------------------
+
+getTipBlockNo :: FilePath -> IO Int
+getTipBlockNo socketPath = do
+    val <-
+        runCmd
+            "cardano-cli query tip"
+            [ optNetwork
+            , opt "socket-path" socketPath
+            ]
+            & Cmd.pipeChunks [str|jq -r '.block'|]
+            & firstNonEmptyLine "getTipBlockNo"
+    putStrLn [str|getTipBlockNo: #{socketPath} -> #{val}|]
+    pure $ read val
+
+getConnectedPorts :: String -> IO [String]
+getConnectedPorts nodeDir = do
+    nodeDirP <-
+        Path.fromString
+            [str|#{env_TESTNET_WORK_DIR}/node-data/#{nodeDir}/topology.json|]
+    File.readChunks nodeDirP
+        & Cmd.pipeChunks [str|jq -r '.localRoots[].accessPoints[].port'|]
+        & nonEmptyLines
+        & Stream.fold Fold.toList
+
+-- NOTE: Pfctl is OpenBSD/MacOS specific. We'll need to use iptables for Linux.
+-- TODO: Support Linux.
+
+ensurePfctl :: IO a -> IO a
+ensurePfctl action = do
+    res <-
+        runCmd "sudo pfctl -s info" []
+            & nonEmptyLines
+            & Stream.fold (Fold.find isStatusLine)
+    case res of
+        Nothing -> error "ensurePfctl: Unable to parse status."
+        Just ln ->
+            -- NOTE: Enable pfctl only if already not enabled. This can still
+            -- cause problems with async processes.
+            if not (isEnabled ln)
+                then
+                    bracket
+                        (runCmd_ "sudo pfctl -e")
+                        (\_ -> runCmd_ "sudo pfctl -d")
+                        (\_ -> action)
+                else action
+  where
+    isStatusLine = isPrefixOf "Status"
+    isEnabled ln = words ln !! 1 == "Enabled"
+
+-- TODO: Create the environment in such a way that node 1 has significantly more
+-- stake than node 2 so it is chosen to print most of the blocks.
+triggerRollback :: IO ()
+triggerRollback = do
+    node1Ports <- getConnectedPorts "node1" -- node2 and node3
+    node2Ports <- getConnectedPorts "node2" -- node1 and node3
+    let n2 = (node1Ports List.\\ node2Ports) !! 0
+    writeFile rollbackConf (rollbackConfContents n2 node2Ports)
+    ensurePfctl . bracket disconnectNodes (const connectNodes) $ \_ -> do
+        void $ runMint =<< makeAppEnv "tracing-plutus-v3"
+        waitTillDivergence
+  where
+    rollbackConf = "rollback_block.conf"
+    mkBlockStmt n2 p =
+        [str|block drop quick on lo0 proto tcp from any port #{p} to any port #{n2}|]
+    rollbackConfContents n2 ps = unlines $ mkBlockStmt n2 <$> ps
+    -- WARNING: This affects the entire system.
+    -- TODO: Either containerise this or introduce a named rule-set that you can
+    -- enable and disable.
+    disconnectNodes = runCmd_ [str|sudo pfctl -f #{rollbackConf}|]
+    connectNodes = runCmd_ [str|sudo pfctl -F all|]
+
+    tipStream = Stream.repeatM $ do
+        threadDelay 1000000
+        node2Socket <- getTipBlockNo env_NODE2_SOCKET
+        node1Socket <- getTipBlockNo env_NODE1_SOCKET
+        pure (node2Socket, node1Socket)
+
+    waitTillDivergence = do
+        ni2 <- getTipBlockNo env_NODE2_SOCKET
+        tipStream
+            & Stream.takeWhile (\(n2, n1) -> n1 > n2 + 1 && n2 > ni2)
+            & Stream.fold Fold.drain

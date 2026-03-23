@@ -284,6 +284,13 @@ clean = do
     runCmd_ [str|rm -rf #{env_LOCAL_CONFIG_DIR}|]
     runCmd_ [str|rm -rf #{env_TESTNET_WORK_DIR}|]
     runCmd_ [str|rm -rf #{env_POPULATE_WORK_DIR}|]
+    runCmd_ [str|sh -c 'mv #{db} #{dbPrev} || true'|]
+    runCmd_ [str|sh -c 'mv #{ev} #{evPrev} || true'|]
+  where
+    db = "plutus-script-reexecutor.db"
+    dbPrev = "plutus-script-reexecutor.prev.db"
+    ev = "events.log"
+    evPrev = "events.prev.log"
 
 setup :: IO ()
 setup = do

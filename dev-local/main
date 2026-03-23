@@ -2,4 +2,14 @@
 
 set -euo pipefail
 
+# NOTE: This is not very clean. Updating the sudo timestamp will introduce
+# security vulnerabilities.
+# TODO: Run the tests in a container.
+
+# Trigger sudo timer
+sudo -v
+
+# Reset sudo timer every 2 min
+while true; do sudo -n true; sleep 120; done 2>/dev/null &
+
 process-compose -f ./dev-local/process-compose.yaml -p 3030

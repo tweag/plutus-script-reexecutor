@@ -23,7 +23,6 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Text qualified as Aeson
 import Data.ByteString (ByteString, toStrict)
 import Data.ByteString.Char8 qualified as BSC
-import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Database.SQLite.Simple hiding (execute, executeNamed, query, queryNamed)
 import Database.SQLite.Simple.FromField
@@ -80,22 +79,33 @@ deriving newtype instance ToField EvalError
 deriving newtype instance FromField EvalError
 
 instance ToField (Hash BlockHeader) where
-    toField hash = toField $ serialiseToRawBytes hash
+    toField hash = toField $ C.serialiseToRawBytesHex hash
 
 instance FromField (Hash BlockHeader) where
     fromField f = do
         bs <- fromField f
-        case deserialiseFromRawBytes (C.proxyToAsType Proxy) bs of
+        case C.deserialiseFromRawBytesHex bs of
             Right v -> pure v
             Left err -> returnError ConversionFailed f (show err)
 
+-- NOTE: We use serialiseToRawBytes in a few places and serialiseToRawBytesHex
+-- in others. Although, functionally, it does not matter. It may be a good idea
+-- to use only serialiseToRawBytesHex everywhere.
+--
+-- TODO: Use serialiseToRawBytesHex everywhere for serialization.
+--
+-- NOTE: We use serialiseToRawBytesHex here as serialiseToRawBytes may have
+-- spaces which may break the decoding.
+--
+-- TODO: Remove this instance when we remove blocks_cancelled row from
+-- rollback_event table.
 instance ToField [Hash BlockHeader] where
-    toField hashList = toField $ BSC.unwords $ serialiseToRawBytes <$> hashList
+    toField hashList = toField $ BSC.unwords $ C.serialiseToRawBytesHex <$> hashList
 
 instance FromField [Hash BlockHeader] where
     fromField f = do
         bss <- BSC.words <$> fromField f
-        case sequence $ deserialiseFromRawBytes (C.proxyToAsType Proxy) <$> bss of
+        case sequence $ C.deserialiseFromRawBytesHex <$> bss of
             Right v -> pure v
             Left err -> returnError ConversionFailed f (show err)
 

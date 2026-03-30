@@ -303,13 +303,19 @@ failure      = acquireFailurePointTooOld
 2. Either by adding a leashing client identifier to the existing messages:
 
 ```
-msgAcquire   = [0, base.point, ? word32]
-             / [8, ? words32]
-             / [10, ? words32]
+leashId      = word32
+
+msgAcquire   = [0, base.point, ? leashId]
+             / [8, ? leashId]
+             / [10, ? leashId]
 
 ...
 
-msgRelease   = [5, ? word32]
+msgRelease   = [5, ? bool] ;# unleash flag
+
+...
+
+lsqMsgDone   = [7, ? leashId]
 ```
 
 or by adding new leashing messages:
@@ -318,12 +324,17 @@ or by adding new leashing messages:
 msgAcquire   = [0, base.point]
              / [8]
              / [10]
-             / [12, base.point, word32] ; leashing `MsgAcquire` of `SpecificPoint pt`
-             / [13, word32] ; leashing `MsgAcquire` of `VolatileTip`
-             / [14, word32] ; leashing `MsgAcquire` of `ImmutableTip`
+             / [12, base.point, leashId] ; leashing `MsgAcquire` of `SpecificPoint pt`
+             / [13, leashId] ; leashing `MsgAcquire` of `VolatileTip`
+             / [14, leashId] ; leashing `MsgAcquire` of `ImmutableTip`
+...
 
-msgRelease   = [5]
-             / [15, word32]
+msgRelease   = [5, ? bool] ;# unleash flag
+
+...
+
+lsqMsgDone   = [7]
+             / [15, leashId]
 ```
 
 `msgReAcquire` will behave depending on which version of `msgAcquire` was previously sent.

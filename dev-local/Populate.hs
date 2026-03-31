@@ -18,6 +18,10 @@ module Populate (
     buildStakeAddress,
     genRegCertStakeAddress,
     genDeregCertStakeAddress,
+    firstNonEmptyLine,
+    optNode1Socket,
+    syncNode2,
+    updateNode2Topology,
     -- Globals
     env_LOCAL_CONFIG_DIR,
     env_POPULATE_WORK_DIR,
@@ -28,26 +32,41 @@ module Populate (
     testScriptTrigger,
     escrow,
     runFanout,
+    triggerRollback,
 ) where
 
 -------------------------------------------------------------------------------
 -- Imports
 -------------------------------------------------------------------------------
 
-import Control.Concurrent (threadDelay)
-import Control.Monad (void)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Exception (SomeException, bracket, try)
+import Control.Monad (void, when)
 import Data.Function ((&))
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, union, (\\))
 import Data.Maybe (fromJust)
 import Data.Word (Word8)
 import Streamly.Data.Array (Array)
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
+import Streamly.Data.Stream.Prelude qualified as Stream
+import Streamly.FileSystem.FileIO qualified as File
+import Streamly.FileSystem.Path qualified as Path
+import Streamly.Internal.Data.Stream.Prelude qualified as Stream (
+    newStreamAndCallback,
+    timedGroupsOf,
+ )
 import Streamly.System.Command qualified as Cmd
 import Streamly.Unicode.Stream qualified as Unicode
 import Streamly.Unicode.String (str)
+import System.Directory (doesFileExist)
 import System.FilePath ((<.>), (</>))
+
+import Control.Monad (forever)
+import Data.ByteString qualified as B
+import Network.Socket
+import Network.Socket.ByteString (recv, sendAll)
 
 -------------------------------------------------------------------------------
 -- Utils
@@ -112,14 +131,17 @@ env_TESTNET_WORK_DIR = "devnet-env"
 env_LOCAL_CONFIG_DIR :: FilePath
 env_LOCAL_CONFIG_DIR = "local-config"
 
-env_CARDANO_SOCKET :: FilePath
-env_CARDANO_SOCKET = env_TESTNET_WORK_DIR </> "socket/node1/sock"
+env_CARDANO_TESTNET_NUM_NODES :: Int
+env_CARDANO_TESTNET_NUM_NODES = 3
+
+env_NODE1_SOCKET :: FilePath
+env_NODE1_SOCKET = env_TESTNET_WORK_DIR </> "socket/node1/sock"
+
+env_NODE2_SOCKET :: FilePath
+env_NODE2_SOCKET = env_TESTNET_WORK_DIR </> "socket/node2/sock"
 
 env_CARDANO_TESTNET_MAGIC :: Int
 env_CARDANO_TESTNET_MAGIC = 42
-
-env_CARDANO_TESTNET_NUM_NODES :: Int
-env_CARDANO_TESTNET_NUM_NODES = 1
 
 env_FAUCET_WALLET_VKEY_FILE :: FilePath
 env_FAUCET_WALLET_VKEY_FILE = env_TESTNET_WORK_DIR </> "utxo-keys/utxo1/utxo.vkey"
@@ -141,6 +163,9 @@ env_TX_UNSIGNED = env_POPULATE_WORK_DIR </> "tx.unsigned"
 
 env_TX_SIGNED :: String
 env_TX_SIGNED = env_POPULATE_WORK_DIR </> "tx.signed"
+
+env_NODE_2_CONN_VALVE :: FilePath
+env_NODE_2_CONN_VALVE = "/tmp/node2-unsync.flag"
 
 -------------------------------------------------------------------------------
 -- Command
@@ -167,8 +192,14 @@ raw = CoRaw
 optNetwork :: CmdOption
 optNetwork = opt "testnet-magic" env_CARDANO_TESTNET_MAGIC
 
-optSocketPath :: CmdOption
-optSocketPath = opt "socket-path" env_CARDANO_SOCKET
+optNode1Socket :: CmdOption
+optNode1Socket = opt "socket-path" env_NODE1_SOCKET
+
+optNode2Socket :: CmdOption
+optNode2Socket = opt "socket-path" env_NODE2_SOCKET
+
+runCmd' :: String -> Stream IO (Array Word8)
+runCmd' cmd = Stream.before (putStrLn [str|> #{cmd}|]) (Cmd.toChunks cmd)
 
 runCmd_ :: String -> IO ()
 runCmd_ cmd = do
@@ -176,8 +207,7 @@ runCmd_ cmd = do
     Cmd.toStdout cmd
 
 runCmd :: Command -> [CmdOption] -> Stream IO (Array Word8)
-runCmd cmd args =
-    Stream.before (putStrLn [str|> #{cmdStr}|]) (Cmd.toChunks cmdStr)
+runCmd cmd args = runCmd' cmdStr
   where
     cmdOptStr (CoOpt k v) = [str|--#{k} #{v}|]
     cmdOptStr (CoFlg k) = [str|--#{k}|]
@@ -215,7 +245,7 @@ buildTransaction :: [CmdOption] -> IO ()
 buildTransaction args =
     runCmd
         "cardano-cli conway transaction build"
-        (optNetwork : optSocketPath : args)
+        (optNetwork : optNode2Socket : args)
         & drain
 
 signTransaction :: [CmdOption] -> IO ()
@@ -229,7 +259,7 @@ submitTransaction :: [CmdOption] -> IO ()
 submitTransaction args =
     runCmd
         "cardano-cli conway transaction submit"
-        (optNetwork : optSocketPath : args)
+        (optNetwork : optNode2Socket : args)
         & drain
 
 buildStakeAddress :: [CmdOption] -> IO ()
@@ -263,7 +293,7 @@ getFirstUtxoAt walletAddr =
     runCmd
         "cardano-cli conway query utxo"
         [ optNetwork
-        , optSocketPath
+        , optNode2Socket
         , opt "address" walletAddr
         ]
         & Cmd.pipeChunks [str|jq -r "keys[0]"|]
@@ -274,7 +304,7 @@ getUtxoListAt walletAddr =
     runCmd
         "cardano-cli conway query utxo"
         [ optNetwork
-        , optSocketPath
+        , optNode2Socket
         , opt "address" walletAddr
         ]
         & Cmd.pipeChunks [str|jq -r "keys[]"|]
@@ -286,7 +316,7 @@ nullUtxo utxo =
     runCmd
         "cardano-cli latest query utxo"
         [ optNetwork
-        , optSocketPath
+        , optNode2Socket
         , opt "tx-in" utxo
         ]
         & Cmd.pipeChunks [str|jq 'type == "object" and length == 0'|]
@@ -677,3 +707,158 @@ escrow = do
     faucet <- env_FAUCET_WALLET
     void $ transferAda faucet alice 2000000
     void $ transferAda faucet bob 2000000
+
+--------------------------------------------------------------------------------
+-- Rollback
+--------------------------------------------------------------------------------
+
+getTipBlockNo :: FilePath -> IO (Int, String)
+getTipBlockNo socketPath = do
+    res <-
+        runCmd
+            "cardano-cli query tip"
+            [ optNetwork
+            , opt "socket-path" socketPath
+            ]
+            & Cmd.pipeChunks [str|jq -r '.block,.hash'|]
+            & nonEmptyLines
+            & Stream.fold Fold.toList
+    case res of
+        [b, h] -> do
+            putStrLn [str|getTipBlockNo: #{socketPath} -> #{b}, #{h}|]
+            pure (read b, h)
+        _ -> error [str|getTipBlockNo: Unable to parse block and hash.|]
+
+topologyFile :: String -> FilePath
+topologyFile nodeDir =
+    [str|#{env_TESTNET_WORK_DIR}/node-data/#{nodeDir}/topology.json|]
+
+-- TODO: Make this more robust by using jq or aeson.
+updateNode2Topology :: IO ()
+updateNode2Topology = do
+    let node2 = topologyFile "node2"
+    runCmd_ [str|sed -i 's/"node_1"/{ "address": "127.0.0.1", "port": 5001 }/g' #{node2}|]
+    runCmd_ [str|sed -i 's/"node_3"/{ "address": "127.0.0.1", "port": 5003 }/g' #{node2}|]
+
+getConnectedPorts :: String -> IO [String]
+getConnectedPorts nodeDir = do
+    nodeDirP <- Path.fromString (topologyFile nodeDir)
+    File.readChunks nodeDirP
+        & Cmd.pipeChunks [str|jq -r '.localRoots[].accessPoints[].port'|]
+        & nonEmptyLines
+        & Stream.fold Fold.toList
+
+symmetricDiff :: (Eq a) => [a] -> [a] -> [a]
+symmetricDiff list1 list2 = (list1 \\ list2) `union` (list2 \\ list1)
+
+managedLink ::
+    ([Char] -> IO ()) -> IO Bool -> PortNumber -> PortNumber -> IO ()
+managedLink pushLog0 isBlockedM listenPort nodePort = do
+    sock <- socket AF_INET Stream defaultProtocol
+    setSocketOption sock ReuseAddr 1
+    bind sock (SockAddrInet listenPort 0)
+    listen sock 5
+    pushLog "Ready"
+    forever $ bracket (accept sock) (close . fst) (serveAndConnect . fst)
+  where
+    threadName = show listenPort ++ "<->" ++ show nodePort
+    pushLog s = pushLog0 [str|[#{threadName}]: #{s}|]
+
+    race xs =
+        Stream.fromList xs
+            & Stream.parMapM (Stream.stopWhen Stream.AnyStops) id
+            & Stream.fold Fold.drain
+
+    connectToNode p = do
+        s <- socket AF_INET Stream defaultProtocol
+        connect s (SockAddrInet p (tupleToHostAddress (127, 0, 0, 1)))
+        return s
+
+    shoveler src dst arrow = forever $ do
+        chunk <- recv src 8192
+        let flow = "[" ++ arrow ++ "] " ++ show (B.length chunk) ++ "b"
+        when (B.null chunk) $ ioError $ userError "Disconnected"
+        blocked <- isBlockedM
+        if not blocked
+            then do
+                pushLog [str|#{flow} [ACTIVE]|]
+                sendAll dst chunk
+            else pushLog [str|#{flow} [MUTED]|]
+
+    serveAndConnect appSock = do
+        pushLog "App Connected"
+        nodeRes <- try $ connectToNode nodePort
+        case nodeRes of
+            Left (_ :: SomeException) -> do
+                pushLog "Node Error"
+            Right nodeSock -> do
+                pushLog "Link Established"
+                (_ :: Either SomeException ()) <- try $ do
+                    race
+                        [ shoveler appSock nodeSock ">"
+                        , shoveler nodeSock appSock "<"
+                        ]
+                pushLog "Disconnected. Reconnecting..."
+                close nodeSock
+
+disconnectNode2 :: IO ()
+disconnectNode2 = runCmd_ [str|touch #{env_NODE_2_CONN_VALVE}|]
+
+connectNode2 :: IO ()
+connectNode2 = runCmd_ [str|rm -f #{env_NODE_2_CONN_VALVE}|]
+
+syncNode2 :: IO ()
+syncNode2 = do
+    (pushLog, logStrm) <- Stream.newStreamAndCallback
+
+    putStrLn "Syncing node2..."
+    node12 <- getConnectedPorts "node1"
+    node23 <- getConnectedPorts "node3"
+    let node13 = symmetricDiff node12 node23
+        node1 = node13 !! 0
+        node3 = node13 !! 1
+
+    connectNode2
+
+    -- TODO: Cleanup threads?
+    let isBlockedM = doesFileExist env_NODE_2_CONN_VALVE
+    void $ forkIO $ managedLink pushLog isBlockedM (read "5001") (read node1)
+    void $ forkIO $ managedLink pushLog isBlockedM (read "5003") (read node3)
+
+    logStrm
+        & Stream.timedGroupsOf 30 5 Fold.toListRev
+        & Stream.fold (Fold.drainMapM (putStr . unlines))
+
+triggerRollback :: IO ()
+triggerRollback = do
+    putStrLn "Ensuring convergence..."
+    waitTillConvergence
+
+    disconnectNode2
+
+    putStrLn "Ensuring divergence..."
+    waitTillDivergence
+
+    connectNode2
+
+    putStrLn "Ensuring convergence..."
+    waitTillConvergence
+
+    putStrLn "Rollback successful"
+  where
+    tipStream = Stream.repeatM $ do
+        threadDelay 500000
+        node2Socket <- getTipBlockNo env_NODE2_SOCKET
+        node1Socket <- getTipBlockNo env_NODE1_SOCKET
+        pure (node2Socket, node1Socket)
+
+    drainUntilDiverged ni2 =
+        Fold.takeEndBy_ (\((n2, _), (n1, _)) -> n1 > n2 + 1 && n2 > ni2) Fold.drain
+    waitTillDivergence = do
+        (ni2, _) <- getTipBlockNo env_NODE2_SOCKET
+        tipStream & Stream.fold (drainUntilDiverged ni2)
+
+    waitTillConvergence = do
+        tipStream
+            & Stream.takeWhile (\(n2, n1) -> n1 /= n2)
+            & Stream.fold Fold.drain

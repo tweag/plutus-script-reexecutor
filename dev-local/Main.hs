@@ -9,6 +9,7 @@ module Main (main) where
 -------------------------------------------------------------------------------
 
 import Cardano.Api (IsPlutusScriptLanguage)
+import Control.Monad (when)
 import Data.Function ((&))
 import Data.String (IsString (..))
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -18,6 +19,9 @@ import Onchain.V2.Simple (CompiledCodeLang)
 import Options.Applicative hiding (str)
 import Populate
 import Streamly.Console.Stdio qualified as Console
+import Streamly.FileSystem.FileIO qualified as File
+import Streamly.FileSystem.Path qualified as Path
+import Streamly.System.Command qualified as Cmd
 import Streamly.Unicode.String (str)
 import System.Environment (setEnv)
 import System.FilePath ((</>))
@@ -41,7 +45,9 @@ data Command
     = StartLocalTestnet
     | Clean
     | Populate PopulateCommand
+    | TriggerRollback
     | Setup
+    | SyncNode2
 
 populateCommandParser :: Parser PopulateCommand
 populateCommandParser =
@@ -91,6 +97,18 @@ commandParser =
                 ( info
                     (pure Setup)
                     (progDesc "Setup the initial config files")
+                )
+            <> command
+                "trigger-rollback"
+                ( info
+                    (pure TriggerRollback)
+                    (progDesc "Trigger rollback")
+                )
+            <> command
+                "sync-node2"
+                ( info
+                    (pure SyncNode2)
+                    (progDesc "Sync Node 2")
                 )
         )
 
@@ -260,8 +278,33 @@ createConfig = do
 -- Main
 --------------------------------------------------------------------------------
 
-startLocalTestnet :: IO ()
-startLocalTestnet = do
+changeSecurityParam :: Int -> IO ()
+changeSecurityParam i = do
+    -- NOTE: Using jq here fails because of runCmd. Need to investigate this
+    -- later.
+    -- TODO: Use jq instead of sed
+    updateAndCheck
+        shelly
+        [str|s/"securityParam": [0-9]*/"securityParam": #{secParam}/|]
+        ".securityParam"
+    updateAndCheck byron [str|s/"k": [0-9]*/"k": #{secParam}/|] ".protocolConsts.k"
+  where
+    updateAndCheck fp sedQ jqQ = do
+        runCmd_ [str|sed -i '#{sedQ}' #{fp}|]
+        fpP <- Path.fromString fp
+        updated <-
+            File.readChunks fpP
+                & Cmd.pipeChunks [str|jq -r "#{jqQ}"|]
+                & firstNonEmptyLine "changeSecurityParam.updateAndCheck"
+        when (updated /= secParam) . error $
+            "changeSecurityParam: Unable to change security param: " ++ fp
+
+    shelly = env_TESTNET_WORK_DIR </> "shelley-genesis.json"
+    byron = env_TESTNET_WORK_DIR </> "byron-genesis.json"
+    secParam = show i
+
+createTestnetConfig :: IO ()
+createTestnetConfig = do
     runCmd
         "cardano-testnet create-env"
         [ opt "num-pool-nodes" env_CARDANO_TESTNET_NUM_NODES
@@ -270,6 +313,11 @@ startLocalTestnet = do
         , opt "testnet-magic" env_CARDANO_TESTNET_MAGIC
         ]
         & Console.putChunks
+    changeSecurityParam 100
+    updateNode2Topology
+
+startLocalTestnet :: IO ()
+startLocalTestnet = do
     runCmd
         "cardano-testnet cardano"
         [ opt "num-pool-nodes" env_CARDANO_TESTNET_NUM_NODES
@@ -296,6 +344,7 @@ setup :: IO ()
 setup = do
     clean
     createConfig
+    createTestnetConfig
 
 main :: IO ()
 main = do
@@ -311,4 +360,6 @@ main = do
         Populate PCTriggerTest -> testScriptTrigger
         Populate PCEscrow -> escrow
         Populate PCFanout -> runFanout
+        TriggerRollback -> triggerRollback
+        SyncNode2 -> syncNode2
         Setup -> setup

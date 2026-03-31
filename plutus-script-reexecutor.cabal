@@ -145,11 +145,15 @@ executable dev-local
 
   build-depends:
     , base
+    , bytestring
     , cardano-api
+    , directory
     , filepath
+    , network
     , onchain
     , optparse-applicative
     , plutus-ledger-api
+    , streamly
     , streamly-core
     , streamly-process
     , time

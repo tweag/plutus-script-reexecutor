@@ -16,6 +16,7 @@ import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import PSR.Events.Interface
+import PSR.Types (BlockStatus (..))
 import PlutusLedgerApi.Common (MajorProtocolVersion (..), PlutusLedgerLanguage (..))
 import Servant
 import Servant.API.WebSocket (WebSocketPending)
@@ -52,6 +53,13 @@ instance ToJSON ExecutionEventPayload where
             , "traceLogs" .= toJSON traceLogs
             , "evalError" .= toJSON evalError
             ]
+
+instance ToJSON BlockStatus where
+    toJSON =
+        toJSON @Text . \case
+            BSUnknown -> "unknown"
+            BSCancelled -> "cancelled"
+            BSCommitted -> "committed"
 
 instance ToJSON EventPayload
 instance ToJSON Event

@@ -71,6 +71,12 @@ processes:
       script-reexecutor:
         condition: process_healthy
 
+  script-websocket-rollbacks:
+    command: "websocat --text ws://localhost:8090/events-ws/?type=rollback threadedstdio: | jq -C --unbuffered"
+    depends_on:
+      script-reexecutor:
+        condition: process_healthy
+
   script-logs-output:
     command: "tail -f events.log | jq -C --unbuffered"
     depends_on:

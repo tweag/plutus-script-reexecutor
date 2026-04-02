@@ -14,6 +14,7 @@ import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
+import PSR.Types (BlockStatus)
 import PlutusLedgerApi.Common (Data, MajorProtocolVersion, PlutusLedgerLanguage)
 
 data EventType
@@ -34,6 +35,7 @@ data Event = Event
     , slotNo :: C.SlotNo
     , createdAt :: UTCTime
     , payload :: EventPayload
+    , blockStatus :: BlockStatus
     }
     deriving (Generic)
 

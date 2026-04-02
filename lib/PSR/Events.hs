@@ -7,6 +7,7 @@ import Data.Foldable (for_)
 import Data.Time (getCurrentTime)
 import PSR.Events.Interface
 import PSR.Storage.Interface (Storage (..))
+import PSR.Types (BlockStatus (..))
 
 withEvents :: Maybe Storage -> (Events -> IO ()) -> IO ()
 withEvents maybeStorage act = do
@@ -30,6 +31,7 @@ withEvents maybeStorage act = do
                         , slotNo
                         , createdAt
                         , payload = RollbackPayload blocksCancelled
+                        , blockStatus = BSCancelled
                         }
 
     let
@@ -44,6 +46,7 @@ withEvents maybeStorage act = do
                         , slotNo
                         , createdAt
                         , payload = SelectionPayload blockNo
+                        , blockStatus = BSUnknown
                         }
             for_ maybeStorage $ \s ->
                 s.addSelectionEvent blockHeader
@@ -63,6 +66,7 @@ withEvents maybeStorage act = do
                         , slotNo
                         , createdAt
                         , payload = ExecutionPayload blockNo payload
+                        , blockStatus = BSUnknown
                         }
             STM.atomically $ writeTChan eventsChannel event
             pure event

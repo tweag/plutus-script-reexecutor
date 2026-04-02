@@ -64,7 +64,7 @@ initSchema conn = withTransaction conn $ do
 
 -- "col" is a convenience sugar over (:=)
 col :: (ToField v) => Text -> v -> NamedParam
-col k v = (T.cons ':' k) := v
+col k v = T.cons ':' k := v
 
 getParamKeys :: [NamedParam] -> [Text]
 getParamKeys params = [k | (k := _) <- params]

@@ -19,7 +19,6 @@ import PSR.Storage.SQLite.GetEvents qualified as GetEvents
 import PSR.Storage.SQLite.Instances ()
 import PSR.Storage.SQLite.Metrics (SqliteMetrics (..), initialiseMetrics)
 import PSR.Storage.SQLite.Utils
-import PSR.Types (BlockStatus (..))
 import PlutusLedgerApi.Common (MajorProtocolVersion (..))
 
 withSqliteStorage :: FilePath -> Int -> (Storage -> IO ()) -> IO ()
@@ -34,7 +33,7 @@ mkStorage confirmationDepth metrics pool = do
     withResource pool initSchema
     pure $ Storage{..}
   where
-    getEvents = GetEvents.getEvents metrics.getEvents_select pool
+    getEvents = GetEvents.getEvents metrics.getEvents_select pool confirmationDepth
 
     -- NOTE: The block may not always exist in our database. And it may not be
     -- possible to get the proper BlockHeader on a rollback event.
@@ -44,7 +43,6 @@ mkStorage confirmationDepth metrics pool = do
         let colsKnown =
                 [ col "slot_no" slotNo
                 , col "hash" hash
-                , col "status" BSUnknown
                 ]
             cols =
                 case mBlockNo of
@@ -60,24 +58,6 @@ mkStorage confirmationDepth metrics pool = do
     createBlockIfNotExists :: Connection -> BlockHeader -> IO ()
     createBlockIfNotExists conn (BlockHeader slotNo hash blockNo) =
         createBlockIfNotExistsUtil conn slotNo hash (Just blockNo)
-
-    commitBlock :: Connection -> BlockNo -> IO ()
-    commitBlock conn blockNoToCommit = do
-        let q = "UPDATE block SET status = :set_status WHERE block_no = :block_no AND status = :prev_status;"
-        executeNamed metrics.setBlockStatus_update conn q $
-            [ ":set_status" := BSCommitted
-            , ":prev_status" := BSUnknown
-            , ":block_no" := blockNoToCommit
-            ]
-
-    cancelBlocksAfterSlot :: Connection -> SlotNo -> IO [Hash BlockHeader]
-    cancelBlocksAfterSlot conn slotNo = do
-        let q = "UPDATE block SET status = :set_status WHERE slot_no > :slot_no RETURNING hash;"
-        fmap (fmap fromOnly) $
-            queryNamed metrics.setBlockStatus_update conn q $
-                [ ":set_status" := BSCancelled
-                , ":slot_no" := slotNo
-                ]
 
     getOrCreateCostModelParamsId :: Connection -> MajorProtocolVersion -> CostModel -> IO Integer
     getOrCreateCostModelParamsId conn (MajorProtocolVersion v) costModel = do
@@ -157,20 +137,28 @@ mkStorage confirmationDepth metrics pool = do
     addRollbackEvent slotNo hash =
         withResource pool $ \conn -> withTransaction conn $ do
             createPartialBlockIfNotExists conn slotNo hash
-            blocksCancelled <- cancelBlocksAfterSlot conn slotNo
-            let params =
-                    [ col "block_hash" hash
-                    , col "blocks_cancelled" blocksCancelled
+            [Only event_id] <-
+                sqlInsertReturning
+                    metrics.addRollbackEvent_insert
+                    conn
+                    "rollback_event"
+                    [col "block_hash" hash]
+                    ["event_id"]
+            let q' =
+                    "INSERT INTO rollback_block (event_id, block_hash) \
+                    \SELECT :event_id, hash FROM block WHERE slot_no > :slot_no \
+                    \RETURNING block_hash;"
+            fmap fromOnly
+                <$> queryNamed
+                    metrics.addRollbackBlock_insert
+                    conn
+                    q'
+                    [ ":event_id" := (event_id :: Integer)
+                    , ":slot_no" := slotNo
                     ]
-            sqlInsert
-                metrics.addRollbackEvent_insert
-                conn
-                "rollback_event"
-                params
-            pure blocksCancelled
 
     addSelectionEvent :: BlockHeader -> IO ()
-    addSelectionEvent blockHeader@(BlockHeader _ hash blockNo) =
+    addSelectionEvent blockHeader@(BlockHeader _ hash _) =
         withResource pool $ \conn -> withTransaction conn $ do
             void $ createBlockIfNotExists conn blockHeader
             let params = [col "block_hash" hash]
@@ -179,7 +167,6 @@ mkStorage confirmationDepth metrics pool = do
                 conn
                 "selection_event"
                 params
-            commitBlock conn (blockNo - fromIntegral confirmationDepth)
 
     getExecutionContexts :: [FilterBy] -> IO [(BlockHeader, ExecutionContextId, ExecutionContext)]
     getExecutionContexts filters =

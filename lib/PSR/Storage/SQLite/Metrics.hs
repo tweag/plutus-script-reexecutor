@@ -5,13 +5,13 @@ import PSR.Storage.SQLite.Instances ()
 
 data SqliteMetrics = SqliteMetrics
     { createBlockIfNotExists_insert :: Summary
-    , setBlockStatus_update :: Summary
     , getOrCreateCostModelParamsId_insert :: Summary
     , getOrCreateCostModelParamsId_select :: Summary
     , setOrCreateBlockId_insert :: Summary
     , setOrCreateBlockId_select :: Summary
     , addExecutionEvent_insert :: Summary
     , addRollbackEvent_insert :: Summary
+    , addRollbackBlock_insert :: Summary
     , addSelectionEvent_insert :: Summary
     , getEvents_select :: Summary
     , getExecutionContextByNameOrScriptHash_select :: Summary
@@ -23,10 +23,6 @@ initialiseMetrics = do
         regSummary
             "sqlite_createBlockIfNotExists_insert"
             "Execution time of createBlockIfNotExists insert query"
-    setBlockStatus_update <-
-        regSummary
-            "sqlite_setBlockStatus_update"
-            "Execution time of setBlockStatus update query"
     getOrCreateCostModelParamsId_select <-
         regSummary
             "sqlite_getOrCreateCostModelParamsId_select"
@@ -51,6 +47,10 @@ initialiseMetrics = do
         regSummary
             "sqlite_addRollbackEvent_insert"
             "Execution time of addRollbackEvent insert query"
+    addRollbackBlock_insert <-
+        regSummary
+            "sqlite_addRollbackBlock_insert"
+            "Execution time of addRollbackEvent block insert query"
     addSelectionEvent_insert <-
         regSummary
             "sqlite_addSelectionEvent_insert"

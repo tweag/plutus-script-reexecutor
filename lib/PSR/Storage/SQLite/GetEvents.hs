@@ -26,9 +26,10 @@ import PSR.Events.Interface (
 import PSR.Metrics qualified as Metrics
 import PSR.Storage.SQLite.Instances ()
 import PSR.Storage.SQLite.Utils
+import PSR.Types (BlockStatus)
 
-getEvents :: Metrics.Summary -> Pool Connection -> EventFilterParams -> IO [Event]
-getEvents getEvents_select pool EventFilterParams{..} =
+getEvents :: Metrics.Summary -> Pool Connection -> Int -> EventFilterParams -> IO [Event]
+getEvents getEvents_select pool confirmationDepth EventFilterParams{..} =
     withResource pool $ \conn -> withTransaction conn $ do
         let
             -- see `docs/specification.md` for default values
@@ -80,15 +81,25 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 "SELECT b.slot_no, b.hash, b.block_no, \
                 \ CASE \
                 \   WHEN ec.block_hash IS NOT NULL THEN 'execution' \
-                \   WHEN c.block_hash IS NOT NULL THEN 'rollback' \
-                \   WHEN s.block_hash IS NOT NULL THEN 'selection' \
+                \   WHEN re.block_hash IS NOT NULL THEN 'rollback' \
+                \   WHEN s.block_hash  IS NOT NULL THEN 'selection' \
                 \ END, \
-                \ COALESCE(ee.created_at, c.created_at, s.created_at), \
+                \ COALESCE(ee.created_at, re.created_at, s.created_at), \
                 \ json(ee.trace_logs), \
-                \ c.blocks_cancelled, \
+                \ rb.block_hashes, \
                 \ ee.eval_error, \
                 \ ee.exec_budget_cpu, \
                 \ ee.exec_budget_mem, \
+                \ CASE \
+                \   WHEN rb.block_hashes IS NOT NULL \
+                \       THEN 'cancelled' \
+                \   WHEN \
+                \       b_max.max_block_no  IS NOT NULL AND \
+                \       b.block_no IS NOT NULL AND \
+                \       (b_max.max_block_no - :confirmation_depth) > b.block_no \
+                \       THEN 'committed' \
+                \   ELSE 'unknown' \
+                \ END,\
                 \ ec.transaction_hash, \
                 \ ec.target_script_hash, \
                 \ ec.target_script_name, \
@@ -103,20 +114,28 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 \ ec.exec_budget_max_mem, \
                 \ cmp.params \
                 \ FROM block b \
-                \ LEFT JOIN execution_context ec ON ec.block_hash = b.hash \
-                \ LEFT JOIN execution_event ee ON ee.context_id = ec.context_id \
+                \ LEFT JOIN execution_context ec  ON ec.block_hash = b.hash \
+                \ LEFT JOIN execution_event   ee  ON ee.context_id = ec.context_id \
                 \ LEFT JOIN cost_model_params cmp ON cmp.params_id = ec.cost_model_params_id \
-                \ LEFT JOIN rollback_event c ON c.block_hash = b.hash \
-                \ LEFT JOIN selection_event s ON s.block_hash = b.hash "
+                \ LEFT JOIN selection_event   s   ON s.block_hash  = b.hash  \
+                \ LEFT JOIN rollback_event    re  ON re.block_hash = b.hash \
+                \ LEFT JOIN \
+                \   (SELECT event_id, string_agg(block_hash, ' ') AS block_hashes \
+                \    FROM rollback_block)     rb  ON re.event_id   = rb.event_id \
+                \ JOIN (SELECT max(block_no) as max_block_no from block) b_max"
                     <> whereQuery
-                    <> " ORDER BY COALESCE(ee.created_at, c.created_at, s.created_at) ASC \
+                    <> " ORDER BY COALESCE(ee.created_at, re.created_at, s.created_at) ASC \
                        \ LIMIT :limit \
                        \ OFFSET :offset"
 
-            parameters = whereParams <> [":limit" := limitParameter, ":offset" := offsetParameter]
-
-        rows <- queryNamed getEvents_select conn eventsQuery parameters
-        pure $ rowToEvent <$> rows
+            parameters =
+                whereParams
+                    <> [ ":limit" := limitParameter
+                       , ":offset" := offsetParameter
+                       , ":confirmation_depth" := confirmationDepth
+                       ]
+        fmap rowToEvent
+            <$> queryNamed getEvents_select conn eventsQuery parameters
   where
     rowToEvent ::
         ( ( SlotNo
@@ -129,6 +148,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
           , Maybe EvalError
           , Maybe Integer
           , Maybe Integer
+          , BlockStatus
           )
             :. Maybe ExecutionContext
         ) ->
@@ -144,6 +164,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                 , evalError
                 , mExBudgetCpu
                 , mExBudgetMem
+                , blockStatus
                 )
                 :. mExecutionContext
             ) =
@@ -161,7 +182,7 @@ getEvents getEvents_select pool EventFilterParams{..} =
                         context <- mExecutionContext
                         blockNo <- mBlockNo
                         pure $ ExecutionPayload blockNo $ ExecutionEventPayload{..}
-                    Rollback -> pure $ RollbackPayload (maybe [] id blocksCancelled)
+                    Rollback -> pure $ RollbackPayload (fromMaybe [] blocksCancelled)
                     Selection -> SelectionPayload <$> mBlockNo
              in
                 Event{..}
